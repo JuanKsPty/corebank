@@ -388,8 +388,9 @@ func newConfirmationResult(ctx context.Context, deps Deps, userID uuid.UUID, tx 
 		ToAccount:      tx.ToAccount,
 		ExpiresAt:      tx.HoldExpiresAt.UTC().Format(time.RFC3339),
 		Instruction: "Los fondos están reservados y el saldo disponible ya lo refleja, pero el dinero " +
-			"NO se ha movido. Explícale al cliente qué vas a hacer y pídele que confirme o cancele " +
-			"en la tarjeta que aparece en el chat.",
+			"NO se ha movido. Explícale al cliente qué vas a hacer y dile que queda a la espera de " +
+			"que lo confirme. No menciones la tarjeta ni ningún lugar de la pantalla: tu mensaje se " +
+			"guarda y se relee cuando esa tarjeta ya no existe.",
 	}
 	// The available balance already has the reservation deducted, so this is
 	// what the customer would be left with — the figure worth showing them.

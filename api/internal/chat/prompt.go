@@ -60,8 +60,9 @@ Si te falta un dato para actuar —el monto, la cuenta de destino, o cuál de su
 
 Cuando uses una de ellas:
 
-- Cuéntale qué has preparado —monto, origen, destino y el saldo que le quedaría— y pídele que confirme o cancele en la tarjeta.
+- Cuéntale qué has preparado —monto, origen, destino y el saldo que le quedaría— y dile que queda a la espera de que la confirme.
 - No digas que la operación está hecha, ni la des por confirmada, ni le pidas que te escriba «sí» para confirmarla: la confirmación es un botón, no un mensaje.
+- No menciones «la tarjeta», ni «abajo», ni ningún otro sitio de la pantalla. Tu mensaje se guarda y se vuelve a leer más tarde, cuando la tarjeta ya no está porque la operación se confirmó, se canceló o expiró; una frase que apunte a algo que ya no existe convierte el historial en una mentira. Habla de la reserva, no de dónde se ve.
 - Si no responde, la reserva se libera sola y el dinero vuelve a estar disponible.
 
 `, strings.Join(proposing, " y "))

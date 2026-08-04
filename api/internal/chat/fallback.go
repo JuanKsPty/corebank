@@ -445,7 +445,7 @@ func renderResult(tool, content string) string {
 			BalanceIfConfirmed string `json:"balance_if_confirmed"`
 		}
 		if json.Unmarshal([]byte(content), &out) != nil {
-			return "He preparado la operación. Confírmala o cancélala en la tarjeta."
+			return "He preparado la operación y queda a la espera de que la confirmes."
 		}
 		var text string
 		if tool == mcpserver.ToolPrepareWithdrawal {
@@ -458,9 +458,12 @@ func renderResult(tool, content string) string {
 			text += fmt.Sprintf(" Si la confirmas te quedarán $%s disponibles.", grouped(out.BalanceIfConfirmed))
 		}
 		// Stated explicitly, because this is the one thing the customer must not
-		// misread.
+		// misread. Deliberately without pointing at the card: this text is stored and
+		// read again later, when the card is gone because the hold was confirmed,
+		// cancelled or expired, and a sentence naming a place on the screen would then
+		// be describing something that is not there.
 		return text + "\n\nLos fondos están reservados pero **el dinero aún no se ha movido**: " +
-			"confirma o cancela en la tarjeta de abajo."
+			"queda a la espera de que lo confirmes."
 
 	default:
 		return content
