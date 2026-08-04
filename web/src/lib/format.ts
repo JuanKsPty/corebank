@@ -41,6 +41,7 @@ export function moneyParts(amount: Amount | number): { whole: string; cents: str
 
 const dateFormat = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short', year: 'numeric' })
 const dayMonthFormat = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short' })
+const monthNameFormat = new Intl.DateTimeFormat('es', { month: 'long' })
 
 export function formatDate(iso: string): string {
   return dateFormat.format(new Date(iso))
@@ -48,6 +49,38 @@ export function formatDate(iso: string): string {
 
 export function formatDayMonth(iso: string): string {
   return dayMonthFormat.format(new Date(iso))
+}
+
+/**
+ * "02" — the day alone, for a statement row under a month heading.
+ *
+ * A row inside a group headed "Agosto 2026" does not need to repeat the month, and
+ * this is what lets the date column be narrow enough to actually fit. Deliberately
+ * not `Intl` with a numeric month: `es-PA` returns "09/25/24" for
+ * `{day:'2-digit',month:'2-digit',year:'2-digit'}` — month first, US order — which
+ * would silently misdate every movement for a Panamanian reader.
+ */
+export function formatDayOfMonth(iso: string): string {
+  return String(new Date(iso).getDate()).padStart(2, '0')
+}
+
+/** A stable key for grouping movements by the month they occurred in. */
+export function monthKey(iso: string): string {
+  const date = new Date(iso)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+/**
+ * "Agosto 2026" — the heading over a month's movements.
+ *
+ * Assembled from the month name and the year rather than asking `Intl` for both,
+ * because the Spanish long form is "agosto de 2026" and a heading is not a
+ * sentence.
+ */
+export function formatMonth(iso: string): string {
+  const date = new Date(iso)
+  const month = monthNameFormat.format(date)
+  return `${month.charAt(0).toUpperCase()}${month.slice(1)} ${date.getFullYear()}`
 }
 
 /** Seconds remaining until an ISO instant, floored at zero. */
@@ -100,6 +133,28 @@ export const EXTERNAL = 'EXTERNAL'
 export function counterpartyLabel(accountNumber: string | undefined): string {
   if (!accountNumber) return '—'
   return accountNumber === EXTERNAL ? 'Externo' : accountNumber
+}
+
+/**
+ * "···1300" — a counterparty reduced to what actually identifies it to a person.
+ *
+ * An account number here is always 19 characters: 16 digits in four dash-separated
+ * groups. Spline Sans Mono advances 1200 units on a 2000-unit em for every glyph it
+ * has, so at the 12px the statement uses those 19 characters need 19 × 7.2 ≈ 134px
+ * — and the column they were being drawn in had a 104px content box. With
+ * `white-space: nowrap` and nothing clipping them, the last 30px painted straight
+ * over the rule dividing the debit and credit sides. That was the bug.
+ *
+ * Widening the column is not the fix: it would have to grow by a third to hold a
+ * string whose leading twelve digits are the same on every row in the dataset. The
+ * last four are what a person reads to tell two of their accounts apart, they are
+ * what the account cards already show, and they need 7 glyphs ≈ 50px. The full
+ * number stays one hover or one tap away.
+ */
+export function counterpartyShort(accountNumber: string | undefined): string {
+  if (!accountNumber) return '—'
+  if (accountNumber === EXTERNAL) return 'Externo'
+  return `···${accountNumber.slice(-4)}`
 }
 
 /**
