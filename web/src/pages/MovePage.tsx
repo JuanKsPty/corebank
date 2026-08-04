@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
 import { newIdempotencyKey } from '@/api/endpoints'
-import type { Transaction } from '@/api/types'
+import type { Amount, Transaction } from '@/api/types'
 import { ConfirmationCard } from '@/components/ConfirmationCard'
-import { Field, Figure, Notice, Spinner, cx } from '@/components/primitives'
+import { BalanceComposition, Field, Figure, Notice, Spinner, cx } from '@/components/primitives'
+import { Skeleton } from '@/components/ui/skeleton'
 import { accountTypeLabel, money, movementLabel } from '@/lib/format'
 import { useMe, useMovement } from '@/lib/queries'
 import {
@@ -45,11 +46,24 @@ export function MovePage() {
   const accounts = me.data?.accounts ?? []
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <header>
-        <p className="type-eyebrow">Mover dinero</p>
-        <h1 className="type-display mt-1.5 text-[1.75rem]">¿Qué quieres hacer?</h1>
-      </header>
+    // A form has a measure — a 1400px-wide field is not easier to fill in — but it used
+    // to get that measure from `mx-auto max-w-2xl`, which meant 672px of form centred in
+    // 1440px of viewport with 384px of nothing down each side. The cap stays; what
+    // changes is that the space left over is put to work instead of being padding. What
+    // goes in it is the one thing you actually need while filling this in: what you have
+    // and how much of it is already spoken for.
+    //
+    // The side column waits until `2xl` because it is competing for width with two other
+    // fixtures: the 16rem rail and, from `xl`, the 24rem assistant. At 1440px those two
+    // leave 736px, and splitting that three ways gave the accounts 136px — narrow enough
+    // that the balance was clipped inside its own card. Below `2xl` the accounts sit
+    // under the form instead, which is where a phone has them anyway.
+    <div className="grid gap-8 2xl:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] 2xl:gap-12">
+      <div className="min-w-0">
+        <header>
+          <p className="type-eyebrow">Mover dinero</p>
+          <h1 className="type-display mt-1.5 text-[1.75rem]">¿Qué quieres hacer?</h1>
+        </header>
 
       <div className="mt-5 grid gap-2 sm:grid-cols-3" role="tablist" aria-label="Tipo de operación">
         {KINDS.map((option) => (
@@ -72,11 +86,92 @@ export function MovePage() {
         ))}
       </div>
 
-      {/* The form is keyed on the operation, so switching resets it. Carrying a
-          destination account over from a transfer into a deposit would be a
-          confusing kind of helpful. */}
-      <MovementForm key={kind} kind={kind} accounts={accounts} loading={me.isLoading} />
+        {/* The form is keyed on the operation, so switching resets it. Carrying a
+            destination account over from a transfer into a deposit would be a
+            confusing kind of helpful. */}
+        <MovementForm key={kind} kind={kind} accounts={accounts} loading={me.isLoading} />
+      </div>
+
+      <AvailableAside accounts={accounts} loading={me.isLoading} />
     </div>
+  )
+}
+
+/**
+ * What you have, beside the form that spends it.
+ *
+ * Below `2xl` this drops under the form rather than disappearing: on a phone it is still
+ * the answer to "can I actually send this", and it is cheap — the accounts are already
+ * loaded to populate the form's own account picker.
+ */
+function AvailableAside({
+  accounts,
+  loading,
+}: {
+  accounts: Array<{
+    account_number: string
+    account_type: string
+    available: Amount
+    posted: Amount
+    held: Amount
+  }>
+  loading?: boolean
+}) {
+  if (loading) {
+    return (
+      <aside className="space-y-3" aria-hidden="true">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-24 w-full" />
+      </aside>
+    )
+  }
+  if (accounts.length === 0) return null
+
+  const held = accounts.reduce((total, account) => total + account.held.cents, 0)
+
+  return (
+    <aside aria-labelledby="disponible" className="2xl:pt-1">
+      <h2 id="disponible" className="type-eyebrow">
+        Lo que puedes mover
+      </h2>
+
+      {/* Two-up below 2xl, where this sits under the form and has the full width;
+          stacked in the side column, where it does not. */}
+      <ul className="mt-3 grid gap-2 sm:grid-cols-2 2xl:grid-cols-1">
+        {accounts.map((account) => (
+          <li key={account.account_number} className="card p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[0.8125rem] font-medium">
+                {accountTypeLabel(account.account_type)}
+              </p>
+              <p className="type-figure text-[0.6875rem] text-ink-faint">
+                ···{account.account_number.slice(-4)}
+              </p>
+            </div>
+            <p className="mt-2">
+              <Figure amount={account.available} size="lg" />
+            </p>
+            {account.held.cents > 0 && (
+              <div className="mt-3">
+                <BalanceComposition
+                  posted={account.posted}
+                  held={account.held}
+                  available={account.available}
+                />
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {held > 0 && (
+        <p className="mt-3 text-[0.8125rem] text-ink-soft">
+          Hay <Figure amount={{ cents: held, formatted: (held / 100).toFixed(2), currency: 'USD' }} size="sm" tone="hold" />{' '}
+          retenidos por operaciones que aún no has confirmado. Ese dinero no se puede
+          mover hasta que las confirmes o expiren.
+        </p>
+      )}
+    </aside>
   )
 }
 
