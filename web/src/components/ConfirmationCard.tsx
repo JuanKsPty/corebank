@@ -1,0 +1,188 @@
+import { useState } from 'react'
+
+import { ApiError } from '@/api/client'
+import type { ConfirmationCard as Card } from '@/api/types'
+import { counterpartyLabel, moneyFromText, movementLabel } from '@/lib/format'
+import { useResolveConfirmation } from '@/lib/queries'
+import { Countdown, Spinner, cx } from './primitives'
+
+/**
+ * ConfirmationCard is the two buttons that decide whether money moves.
+ *
+ * It is the most consequential thing in the interface, so it is built to be
+ * unmistakable rather than convenient. It states in words that nothing has moved
+ * yet; it shows the amount, both accounts, and the balance the customer would be
+ * left with; and it carries a live countdown, because the reservation really does
+ * expire on its own and a card that looked permanent would be lying.
+ *
+ * Confirming posts to the API with the hold id. The assistant cannot take this
+ * step — it has no way to — which is what makes a prompt injection unable to
+ * complete a payment no matter what it persuades the model to say.
+ */
+export function ConfirmationCard({
+  card,
+  onResolved,
+  onExpired,
+}: {
+  card: Card
+  onResolved?: (action: 'confirm' | 'cancel') => void
+  onExpired?: () => void
+}) {
+  const resolve = useResolveConfirmation()
+  const [outcome, setOutcome] = useState<'confirm' | 'cancel' | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [expired, setExpired] = useState(false)
+
+  async function act(action: 'confirm' | 'cancel') {
+    setFailure(null)
+    try {
+      await resolve.mutateAsync({ holdId: card.hold_id, action })
+      setOutcome(action)
+      onResolved?.(action)
+    } catch (error) {
+      // The most likely failure here is that the reservation expired while the
+      // customer was deciding, which is not an error in their behaviour and is
+      // worth naming precisely.
+      if (error instanceof ApiError) {
+        if (error.code === 'confirmation_expired') setExpired(true)
+        setFailure(error.message)
+      } else {
+        setFailure('No se pudo contactar con el servidor. Inténtalo de nuevo.')
+      }
+    }
+  }
+
+  if (outcome) {
+    return <ResolvedCard card={card} action={outcome} />
+  }
+
+  const isWithdrawal = card.kind === 'withdrawal'
+  const working = resolve.isPending
+
+  return (
+    <div
+      className={cx(
+        'overflow-hidden rounded-[6px] border-2 border-hold/55 bg-paper-raised',
+        // A left band in the hold colour, so the card reads as "reserved" at a
+        // glance and is not mistaken for a completed movement.
+        'shadow-[inset_4px_0_0_var(--color-hold)]',
+      )}
+      role="group"
+      aria-label={`Confirmar ${movementLabel(card.kind).toLowerCase()} de ${moneyFromText(card.amount)}`}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-rule bg-hold/8 px-4 py-2">
+        <p className="type-eyebrow whitespace-nowrap text-[#8a6516]" style={{ letterSpacing: '0.08em' }}>
+          {movementLabel(card.kind)} pendiente
+        </p>
+        <span className="flex items-center gap-1.5 text-[#8a6516]">
+          <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-hold" />
+          <Countdown
+            until={card.expires_at}
+            onElapsed={() => {
+              setExpired(true)
+              onExpired?.()
+            }}
+          />
+        </span>
+      </div>
+
+      <div className="px-4 py-3.5">
+        <p className="type-figure text-[1.75rem] leading-none">{moneyFromText(card.amount)}</p>
+
+        <dl className="mt-3.5 space-y-1.5 text-[0.8125rem]">
+          <div className="flex gap-2">
+            <dt className="w-14 shrink-0 text-ink-faint">Desde</dt>
+            <dd className="type-figure">{counterpartyLabel(card.from_account)}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="w-14 shrink-0 text-ink-faint">{isWithdrawal ? 'Salida' : 'Hacia'}</dt>
+            <dd className="type-figure">{counterpartyLabel(card.to_account)}</dd>
+          </div>
+          {card.balance_if_confirmed && (
+            <div className="flex gap-2 border-t border-rule pt-1.5">
+              <dt className="w-14 shrink-0 text-ink-faint">Te queda</dt>
+              <dd className="type-figure">{moneyFromText(card.balance_if_confirmed)}</dd>
+            </div>
+          )}
+        </dl>
+
+        {/* The sentence that matters most on the card. */}
+        <p className="mt-3 text-[0.8125rem] leading-snug text-[#8a6516]">
+          Los fondos están reservados y tu saldo disponible ya lo refleja, pero el
+          dinero <strong className="font-semibold">no se ha movido</strong>.
+        </p>
+
+        {failure && (
+          <p className="mt-3 text-[0.8125rem] text-[#8f2d24]" role="alert">
+            {failure}
+          </p>
+        )}
+
+        {expired ? (
+          <p className="mt-3.5 rounded border border-rule bg-paper-sunken px-3 py-2 text-[0.8125rem] text-ink-soft">
+            La reserva expiró y los fondos volvieron a estar disponibles. Pídelo de
+            nuevo si aún lo quieres.
+          </p>
+        ) : (
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void act('confirm')}
+              disabled={working}
+              className="btn btn-primary flex-1"
+            >
+              {working && resolve.variables?.action === 'confirm' && <Spinner />}
+              Confirmar
+            </button>
+            <button
+              type="button"
+              onClick={() => void act('cancel')}
+              disabled={working}
+              className="btn btn-secondary flex-1"
+            >
+              {working && resolve.variables?.action === 'cancel' && <Spinner />}
+              Cancelar
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** What the card becomes once the customer has decided. */
+function ResolvedCard({ card, action }: { card: Card; action: 'confirm' | 'cancel' }) {
+  const confirmed = action === 'confirm'
+
+  return (
+    <div
+      className={cx(
+        'rounded-[6px] border px-4 py-3',
+        confirmed ? 'border-credit/35 bg-credit/6' : 'border-rule bg-paper-sunken',
+      )}
+      role="status"
+    >
+      <div className="flex items-center gap-2">
+        {confirmed ? (
+          <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-credit" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 8.5l3.5 3.5L13 4.5" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-ink-faint" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        )}
+        <p className={cx('text-[0.875rem] font-medium', confirmed ? 'text-credit' : 'text-ink-soft')}>
+          {confirmed
+            ? `${movementLabel(card.kind)} de ${moneyFromText(card.amount)} completada`
+            : `${movementLabel(card.kind)} cancelada`}
+        </p>
+      </div>
+      <p className="mt-0.5 pl-[1.375rem] text-[0.75rem] text-ink-faint">
+        {confirmed
+          ? 'El dinero se movió y ya aparece en tu historial.'
+          : 'No se movió nada y los fondos volvieron a estar disponibles.'}
+      </p>
+    </div>
+  )
+}
