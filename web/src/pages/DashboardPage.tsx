@@ -1,16 +1,22 @@
+import { ChartColumnIcon, WalletIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { cn } from '@/lib/utils'
 import type { Account } from '@/api/types'
 import { FlowChart } from '@/components/FlowChart'
 import { MovementList } from '@/components/MovementList'
+import { BalanceComposition, Figure } from '@/components/primitives'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import {
-  BalanceComposition,
-  EmptyState,
-  Figure,
-  Notice,
-  SkeletonLine,
-  cx,
-} from '@/components/primitives'
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
+import { Skeleton } from '@/components/ui/skeleton'
 import { accountTypeLabel, formatDate } from '@/lib/format'
 import { useDashboard } from '@/lib/queries'
 import { useSession } from '@/lib/session'
@@ -37,10 +43,13 @@ export function DashboardPage() {
 
   if (dashboard.isError) {
     return (
-      <Notice tone="error" title="No pudimos cargar tu resumen">
-        Vuelve a intentarlo en un momento. Si sigue pasando, revisa que la API esté en
-        marcha.
-      </Notice>
+      <Alert variant="destructive">
+        <AlertTitle>No pudimos cargar tu resumen</AlertTitle>
+        <AlertDescription>
+          Vuelve a intentarlo en un momento. Si sigue pasando, revisa que la API esté en
+          marcha.
+        </AlertDescription>
+      </Alert>
     )
   }
 
@@ -59,7 +68,7 @@ export function DashboardPage() {
           {data ? (
             <Figure amount={data.total_available} size="display" className="type-display" />
           ) : (
-            <span className="skeleton block h-12 w-64" aria-hidden="true" />
+            <Skeleton className="block h-12 w-64" />
           )}
         </h1>
         <p className="mt-1 text-[0.9375rem] text-ink-soft">
@@ -97,8 +106,8 @@ export function DashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[0, 1, 2].map((index) => (
               <div key={index} className="card p-4">
-                <SkeletonLine className="w-24" />
-                <SkeletonLine className="mt-3 h-5 w-32" />
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 mt-3 h-5 w-32" />
               </div>
             ))}
           </div>
@@ -112,9 +121,24 @@ export function DashboardPage() {
           </ul>
         ) : (
           <div className="card">
-            <EmptyState title="No tienes cuentas abiertas">
-              Tu cuenta se crea al registrarte. Si ves esto, algo salió mal en el registro.
-            </EmptyState>
+            <Empty className="border-0 bg-transparent">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <WalletIcon />
+                </EmptyMedia>
+                <EmptyTitle className="type-display text-[1.0625rem]">
+                  No tienes cuentas abiertas
+                </EmptyTitle>
+                <EmptyDescription>
+                  Tu primera cuenta se crea al registrarte. Si ves esto, ábrela a mano.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button asChild variant="outline">
+                  <Link to="/cuentas">Abrir una cuenta</Link>
+                </Button>
+              </EmptyContent>
+            </Empty>
           </div>
         )}
       </section>
@@ -138,13 +162,23 @@ export function DashboardPage() {
         </div>
         <div className="mt-3">
           {dashboard.isLoading ? (
-            <div className="skeleton h-[180px] w-full" aria-hidden="true" />
+            <Skeleton className="h-[180px] w-full" />
           ) : data && data.flow.points.length > 0 ? (
             <FlowChart flow={data.flow} />
           ) : (
-            <EmptyState title="Sin movimientos que graficar">
-              Cuando entre o salga dinero lo verás aquí, día por día.
-            </EmptyState>
+            <Empty className="border-0 bg-transparent">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ChartColumnIcon />
+                </EmptyMedia>
+                <EmptyTitle className="type-display text-[1.0625rem]">
+                  Sin movimientos que graficar
+                </EmptyTitle>
+                <EmptyDescription>
+                  Cuando entre o salga dinero lo verás aquí, día por día.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </div>
       </section>
@@ -170,9 +204,9 @@ export function DashboardPage() {
             emptyTitle="Aún no tienes movimientos"
             emptyBody="Haz un ingreso o una transferencia y aparecerá aquí al instante."
             emptyAction={
-              <Link to="/mover" className="btn btn-secondary">
-                Mover dinero
-              </Link>
+              <Button asChild variant="outline">
+                <Link to="/mover">Mover dinero</Link>
+              </Button>
             }
           />
         </div>
@@ -187,7 +221,7 @@ function AccountCard({ account }: { account: Account }) {
   return (
     <Link
       to={`/cuentas/${account.account_number}`}
-      className={cx(
+      className={cn(
         'card group block p-4 transition-colors hover:border-ink-faint',
         held && 'border-hold/45',
       )}

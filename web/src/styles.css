@@ -211,102 +211,6 @@
     border-radius: var(--radius-card);
   }
 
-  /* --- controls ---------------------------------------------------------- */
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    padding: 0.5rem 0.9rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    line-height: 1.2;
-    cursor: pointer;
-    transition:
-      background-color 140ms var(--ease-out-soft),
-      border-color 140ms var(--ease-out-soft),
-      color 140ms var(--ease-out-soft);
-  }
-  .btn:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-  }
-
-  .btn-primary {
-    background-color: var(--color-copper);
-    color: #fff;
-  }
-  .btn-primary:hover:not(:disabled) {
-    background-color: color-mix(in oklab, var(--color-copper) 88%, black);
-  }
-
-  .btn-secondary {
-    background-color: transparent;
-    border-color: var(--color-rule);
-    color: var(--color-ink);
-  }
-  .btn-secondary:hover:not(:disabled) {
-    background-color: var(--color-paper-sunken);
-    border-color: var(--color-ink-faint);
-  }
-
-  .btn-ink {
-    background-color: var(--color-ink);
-    color: var(--color-paper);
-  }
-  .btn-ink:hover:not(:disabled) {
-    background-color: color-mix(in oklab, var(--color-ink) 88%, black);
-  }
-
-  .field-label {
-    display: block;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--color-ink-soft);
-    margin-bottom: 0.3rem;
-  }
-
-  .field-input {
-    display: block;
-    width: 100%;
-    background-color: var(--color-paper-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: 4px;
-    padding: 0.55rem 0.7rem;
-    font-size: 0.9375rem;
-    color: var(--color-ink);
-    transition:
-      border-color 140ms var(--ease-out-soft),
-      box-shadow 140ms var(--ease-out-soft);
-  }
-  .field-input::placeholder {
-    color: var(--color-ink-faint);
-  }
-  .field-input:hover:not(:disabled) {
-    border-color: var(--color-ink-faint);
-  }
-  .field-input:disabled {
-    background-color: var(--color-paper-sunken);
-    cursor: not-allowed;
-  }
-  /* An invalid field is marked by colour AND by the message beneath it, never by
-     colour alone. */
-  .field-input[aria-invalid='true'] {
-    border-color: #a4342a;
-    box-shadow: inset 2px 0 0 #a4342a;
-  }
-
-  .field-error {
-    display: flex;
-    gap: 0.35rem;
-    margin-top: 0.3rem;
-    font-size: 0.8125rem;
-    color: #8f2d24;
-  }
-
   /* --- the ledger table -------------------------------------------------- */
 
   /* Reduced, deliberately, to the two rules that are the product's identity.
@@ -326,13 +230,13 @@
     border-left: 1px solid var(--color-rule);
   }
 
-  /* --- skeletons --------------------------------------------------------- */
+  /* Nothing else lives in this layer.
+     .btn, .field-label, .field-input, .field-error and .skeleton were here and are
+     gone: button, field, input and skeleton do the same work as components, and they
+     carry the disabled, invalid and focus states plus the aria wiring that the classes
+     left to each call site. What stays is what no component library has an opinion
+     about — the type roles, the paper surface, and the ledger's rules. */
 
-  .skeleton {
-    background-color: var(--color-paper-sunken);
-    border-radius: 3px;
-    animation: pulse 1.4s ease-in-out infinite;
-  }
 }
 
 @keyframes pulse {

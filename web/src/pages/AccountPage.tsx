@@ -1,7 +1,11 @@
+import { CircleAlertIcon } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { MovementList } from '@/components/MovementList'
-import { BalanceComposition, Figure, Notice, SkeletonLine } from '@/components/primitives'
+import { BalanceComposition, Figure } from '@/components/primitives'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { accountTypeLabel, formatDate } from '@/lib/format'
 import { useHistory, useMe } from '@/lib/queries'
 
@@ -30,9 +34,9 @@ export function AccountPage() {
         <p className="mt-2 text-ink-soft">
           Revisa el número, o vuelve al resumen para ver tus cuentas.
         </p>
-        <Link to="/" className="btn btn-secondary mt-5">
-          Ir al resumen
-        </Link>
+        <Button asChild variant="outline" className="mt-5">
+          <Link to="/panel">Ir al resumen</Link>
+        </Button>
       </div>
     )
   }
@@ -53,13 +57,16 @@ export function AccountPage() {
         {account ? (
           <>
             <p className="type-eyebrow">
-              {accountTypeLabel(account.account_type)} · abierta el {formatDate(account.created_at)}
+              {accountTypeLabel(account.account_type)} · abierta el{' '}
+              {formatDate(account.created_at)}
             </p>
             <h1 className="mt-1.5">
               <span className="sr-only">Saldo disponible: </span>
               <Figure amount={account.available} size="display" className="type-display" />
             </h1>
-            <p className="type-figure mt-1 text-[0.875rem] text-ink-soft">{account.account_number}</p>
+            <p className="type-figure mt-1 text-[0.875rem] text-ink-soft">
+              {account.account_number}
+            </p>
 
             <div className="mt-5 max-w-xl">
               <BalanceComposition
@@ -71,17 +78,21 @@ export function AccountPage() {
           </>
         ) : (
           <div className="space-y-3">
-            <SkeletonLine className="w-40" />
-            <div className="skeleton h-12 w-64" aria-hidden="true" />
+            <Skeleton className="h-3 w-40" />
+            <Skeleton className="h-12 w-64" />
           </div>
         )}
       </header>
 
       {account && account.held.cents > 0 && (
-        <Notice tone="hold" title="Hay fondos retenidos en esta cuenta">
-          Una operación está esperando tu confirmación. Búscala en el asistente del
-          resumen: si no respondes, la reserva se libera sola.
-        </Notice>
+        <Alert className="border-hold/40 bg-hold/8 text-hold-text">
+          <CircleAlertIcon className="text-hold" />
+          <AlertTitle>Hay fondos retenidos en esta cuenta</AlertTitle>
+          <AlertDescription className="text-hold-text/85">
+            Una operación está esperando tu confirmación. Ábrela en el asistente: si no
+            respondes, la reserva se libera sola.
+          </AlertDescription>
+        </Alert>
       )}
 
       <section className="card" aria-labelledby="movimientos">
@@ -104,15 +115,18 @@ export function AccountPage() {
             emptyTitle="Esta cuenta no tiene movimientos"
             emptyBody="Cuando entre o salga dinero de aquí, lo verás en esta lista."
             emptyAction={
-              <Link to="/mover" className="btn btn-secondary">
-                Mover dinero
-              </Link>
+              <Button asChild variant="outline">
+                <Link to="/mover">Mover dinero</Link>
+              </Button>
             }
           />
         </div>
         {history.data?.has_more && (
           <div className="border-t border-rule px-4 py-3 text-center">
-            <Link to="/historial" className="text-[0.8125rem] font-medium text-copper hover:underline">
+            <Link
+              to="/historial"
+              className="text-[0.8125rem] font-medium text-copper hover:underline"
+            >
               Ver el historial completo de esta cuenta
             </Link>
           </div>

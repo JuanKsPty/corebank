@@ -1,11 +1,20 @@
+import { CircleAlertIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
 import { newIdempotencyKey } from '@/api/endpoints'
+import { cn } from '@/lib/utils'
 import type { Amount, Transaction } from '@/api/types'
 import { ConfirmationCard } from '@/components/ConfirmationCard'
-import { BalanceComposition, Field, Figure, Notice, Spinner, cx } from '@/components/primitives'
+import { BalanceComposition, Figure } from '@/components/primitives'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { accountTypeLabel, money, movementLabel } from '@/lib/format'
 import { useMe, useMovement } from '@/lib/queries'
@@ -65,26 +74,32 @@ export function MovePage() {
           <h1 className="type-display mt-1.5 text-[1.75rem]">¿Qué quieres hacer?</h1>
         </header>
 
-      <div className="mt-5 grid gap-2 sm:grid-cols-3" role="tablist" aria-label="Tipo de operación">
-        {KINDS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="tab"
-            aria-selected={kind === option.value}
-            onClick={() => setKind(option.value)}
-            className={cx(
-              'rounded-[5px] border px-3.5 py-3 text-left transition-colors',
-              kind === option.value
-                ? 'border-copper bg-copper/8'
-                : 'border-rule bg-paper-raised hover:border-ink-faint',
-            )}
-          >
-            <span className="block text-[0.9375rem] font-medium">{option.label}</span>
-            <span className="mt-0.5 block text-[0.75rem] text-ink-faint">{option.blurb}</span>
-          </button>
-        ))}
-      </div>
+        <div
+          className="mt-5 grid gap-2 sm:grid-cols-3"
+          role="tablist"
+          aria-label="Tipo de operación"
+        >
+          {KINDS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="tab"
+              aria-selected={kind === option.value}
+              onClick={() => setKind(option.value)}
+              className={cn(
+                'rounded-[5px] border px-3.5 py-3 text-left transition-colors',
+                kind === option.value
+                  ? 'border-copper bg-copper/8'
+                  : 'border-rule bg-paper-raised hover:border-ink-faint',
+              )}
+            >
+              <span className="block text-[0.9375rem] font-medium">{option.label}</span>
+              <span className="mt-0.5 block text-[0.75rem] text-ink-faint">
+                {option.blurb}
+              </span>
+            </button>
+          ))}
+        </div>
 
         {/* The form is keyed on the operation, so switching resets it. Carrying a
             destination account over from a transfer into a deposit would be a
@@ -121,7 +136,7 @@ function AvailableAside({
     return (
       <aside className="space-y-3" aria-hidden="true">
         <Skeleton className="h-3 w-28" />
-        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-3 h-24 w-full" />
       </aside>
     )
   }
@@ -166,9 +181,14 @@ function AvailableAside({
 
       {held > 0 && (
         <p className="mt-3 text-[0.8125rem] text-ink-soft">
-          Hay <Figure amount={{ cents: held, formatted: (held / 100).toFixed(2), currency: 'USD' }} size="sm" tone="hold" />{' '}
-          retenidos por operaciones que aún no has confirmado. Ese dinero no se puede
-          mover hasta que las confirmes o expiren.
+          Hay{' '}
+          <Figure
+            amount={{ cents: held, formatted: (held / 100).toFixed(2), currency: 'USD' }}
+            size="sm"
+            tone="hold"
+          />{' '}
+          retenidos por operaciones que aún no has confirmado. Ese dinero no se puede mover
+          hasta que las confirmes o expiren.
         </p>
       )}
     </aside>
@@ -181,7 +201,11 @@ function MovementForm({
   loading,
 }: {
   kind: Kind
-  accounts: Array<{ account_number: string; account_type: string; available: { cents: number; formatted: string; currency: string } }>
+  accounts: Array<{
+    account_number: string
+    account_type: string
+    available: { cents: number; formatted: string; currency: string }
+  }>
   loading: boolean
 }) {
   const movement = useMovement(kind)
@@ -209,7 +233,10 @@ function MovementForm({
   const canConfirmFirst = kind !== 'deposit'
 
   const selectedAccount = useMemo(
-    () => accounts.find((account) => account.account_number === (source || accounts[0]?.account_number)),
+    () =>
+      accounts.find(
+        (account) => account.account_number === (source || accounts[0]?.account_number),
+      ),
     [accounts, source],
   )
 
@@ -225,10 +252,10 @@ function MovementForm({
           ? 'Elige desde qué cuenta.'
           : undefined,
       to_account_number: needsDestination
-        ? accountNumberProblem(destination) ??
+        ? (accountNumberProblem(destination) ??
           (normaliseAccountNumber(destination) === (source || accounts[0]?.account_number)
             ? 'El origen y el destino no pueden ser la misma cuenta.'
-            : undefined)
+            : undefined))
         : undefined,
       description: description.length > 200 ? 'Máximo 200 caracteres.' : undefined,
     }
@@ -247,7 +274,9 @@ function MovementForm({
         input: {
           amount: amount.trim(),
           account_number: source || undefined,
-          to_account_number: needsDestination ? normaliseAccountNumber(destination) : undefined,
+          to_account_number: needsDestination
+            ? normaliseAccountNumber(destination)
+            : undefined,
           description: description.trim() || undefined,
           require_confirmation: confirmFirst && canConfirmFirst,
         },
@@ -290,130 +319,158 @@ function MovementForm({
   return (
     <form onSubmit={handleSubmit} noValidate className="card mt-4 space-y-4 p-5">
       {failure && (
-        <Notice
-          tone="error"
-          title={failureTitle(failure)}
-          requestId={failure.status >= 500 ? failure.requestId : undefined}
-          onDismiss={() => setFailure(null)}
-        >
-          {failure.message}
-        </Notice>
+        <Alert variant="destructive">
+          <CircleAlertIcon />
+          <AlertTitle>{failureTitle(failure)}</AlertTitle>
+          <AlertDescription>
+            {failure.message}
+            {failure.status >= 500 && failure.requestId && (
+              <span className="type-figure mt-1 block text-[0.6875rem] opacity-70">
+                ref {failure.requestId}
+              </span>
+            )}
+          </AlertDescription>
+        </Alert>
       )}
 
-      <Field
-        label="Monto"
-        error={errors.amount}
-        hint={
-          limitCents !== undefined && selectedAccount
-            ? `Disponible en esta cuenta: ${money(selectedAccount.available)}`
-            : 'Hasta dos decimales, por ejemplo 150.50.'
-        }
-      >
-        {(props) => (
-          <div className="relative">
-            <span
-              aria-hidden="true"
-              className="type-figure pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint"
-            >
+      <Field data-invalid={errors.amount ? true : undefined}>
+        <FieldLabel htmlFor="monto">Monto</FieldLabel>
+        <InputGroup>
+          <InputGroupAddon>
+            <span className="type-figure text-ink-faint" aria-hidden="true">
               $
             </span>
-            <input
-              {...props}
-              className="field-input type-figure pl-7 text-[1.125rem]"
-              // `decimal` rather than `numeric`: it puts a decimal point on a phone
-              // keypad, which an amount needs.
-              inputMode="decimal"
-              autoComplete="off"
-              autoFocus
-              placeholder="0.00"
-              value={amount}
-              onChange={(event) => {
-                setAmount(event.target.value)
-                if (errors.amount) setErrors((p) => ({ ...p, amount: undefined }))
-              }}
-            />
-          </div>
+          </InputGroupAddon>
+          <InputGroupInput
+            id="monto"
+            className="type-figure text-[1.125rem]"
+            // `decimal` rather than `numeric`: it puts a decimal point on a phone
+            // keypad, which an amount needs.
+            inputMode="decimal"
+            autoComplete="off"
+            autoFocus
+            placeholder="0.00"
+            value={amount}
+            aria-invalid={errors.amount ? true : undefined}
+            onChange={(event) => {
+              setAmount(event.target.value)
+              if (errors.amount) setErrors((p) => ({ ...p, amount: undefined }))
+            }}
+          />
+        </InputGroup>
+        {errors.amount ? (
+          <FieldError>{errors.amount}</FieldError>
+        ) : (
+          <FieldDescription>
+            {limitCents !== undefined && selectedAccount
+              ? `Disponible en esta cuenta: ${money(selectedAccount.available)}`
+              : 'Hasta dos decimales, por ejemplo 150.50.'}
+          </FieldDescription>
         )}
       </Field>
 
       {needsSource && (
-        <Field label="Desde" error={errors.account_number}>
-          {(props) =>
-            loading ? (
-              <div className="skeleton h-10 w-full" aria-hidden="true" />
-            ) : (
-              <select
-                {...props}
-                className="field-input"
-                value={source}
-                onChange={(event) => {
-                  setSource(event.target.value)
-                  if (errors.account_number) setErrors((p) => ({ ...p, account_number: undefined }))
-                }}
-              >
-                {accounts.length > 1 && <option value="">Elige una cuenta</option>}
-                {accounts.map((account) => (
-                  <option key={account.account_number} value={account.account_number}>
-                    {accountTypeLabel(account.account_type)} · {account.account_number} ·{' '}
-                    {money(account.available)}
-                  </option>
-                ))}
-              </select>
-            )
-          }
+        <Field data-invalid={errors.account_number ? true : undefined}>
+          <FieldLabel htmlFor="origen">Desde</FieldLabel>
+          {loading ? (
+            <Skeleton className="h-9 w-full" />
+          ) : (
+            <NativeSelect
+              id="origen"
+              value={source}
+              aria-invalid={errors.account_number ? true : undefined}
+              onChange={(event) => {
+                setSource(event.target.value)
+                if (errors.account_number)
+                  setErrors((p) => ({ ...p, account_number: undefined }))
+              }}
+              className="w-full"
+            >
+              {accounts.length > 1 && (
+                <NativeSelectOption value="">Elige una cuenta</NativeSelectOption>
+              )}
+              {accounts.map((account) => (
+                <NativeSelectOption
+                  key={account.account_number}
+                  value={account.account_number}
+                >
+                  {accountTypeLabel(account.account_type)} · {account.account_number} ·{' '}
+                  {money(account.available)}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          )}
+          {errors.account_number && <FieldError>{errors.account_number}</FieldError>}
         </Field>
       )}
 
       {kind === 'deposit' && accounts.length > 1 && (
-        <Field label="Hacia" error={errors.account_number}>
-          {(props) => (
-            <select {...props} className="field-input" value={source} onChange={(e) => setSource(e.target.value)}>
-              <option value="">Elige una cuenta</option>
-              {accounts.map((account) => (
-                <option key={account.account_number} value={account.account_number}>
-                  {accountTypeLabel(account.account_type)} · {account.account_number}
-                </option>
-              ))}
-            </select>
-          )}
+        <Field data-invalid={errors.account_number ? true : undefined}>
+          <FieldLabel htmlFor="destino-propio">Hacia</FieldLabel>
+          <NativeSelect
+            id="destino-propio"
+            value={source}
+            aria-invalid={errors.account_number ? true : undefined}
+            onChange={(event) => setSource(event.target.value)}
+            className="w-full"
+          >
+            <NativeSelectOption value="">Elige una cuenta</NativeSelectOption>
+            {accounts.map((account) => (
+              <NativeSelectOption
+                key={account.account_number}
+                value={account.account_number}
+              >
+                {accountTypeLabel(account.account_type)} · {account.account_number}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {errors.account_number && <FieldError>{errors.account_number}</FieldError>}
         </Field>
       )}
 
       {needsDestination && (
-        <Field
-          label="Cuenta de destino"
-          error={errors.to_account_number}
-          hint="16 dígitos, con o sin guiones."
-        >
-          {(props) => (
-            <input
-              {...props}
-              className="field-input type-figure"
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="4001-0000-0000-0000"
-              value={destination}
-              onChange={(event) => {
-                setDestination(event.target.value)
-                if (errors.to_account_number) setErrors((p) => ({ ...p, to_account_number: undefined }))
-              }}
-              onBlur={() => setDestination((value) => (value ? normaliseAccountNumber(value) : value))}
-            />
+        <Field data-invalid={errors.to_account_number ? true : undefined}>
+          <FieldLabel htmlFor="destino">Cuenta de destino</FieldLabel>
+          <Input
+            id="destino"
+            className="type-figure"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="4001-0000-0000-0000"
+            value={destination}
+            aria-invalid={errors.to_account_number ? true : undefined}
+            onChange={(event) => {
+              setDestination(event.target.value)
+              if (errors.to_account_number)
+                setErrors((p) => ({ ...p, to_account_number: undefined }))
+            }}
+            onBlur={() =>
+              setDestination((value) => (value ? normaliseAccountNumber(value) : value))
+            }
+          />
+          {errors.to_account_number ? (
+            <FieldError>{errors.to_account_number}</FieldError>
+          ) : (
+            <FieldDescription>16 dígitos, con o sin guiones.</FieldDescription>
           )}
         </Field>
       )}
 
-      <Field label="Concepto" error={errors.description} hint="Opcional. Lo verás en tu historial.">
-        {(props) => (
-          <input
-            {...props}
-            className="field-input"
-            maxLength={200}
-            autoComplete="off"
-            placeholder={kind === 'deposit' ? 'Nómina' : 'Pago del alquiler'}
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-          />
+      <Field data-invalid={errors.description ? true : undefined}>
+        <FieldLabel htmlFor="concepto">Concepto</FieldLabel>
+        <Input
+          id="concepto"
+          maxLength={200}
+          autoComplete="off"
+          placeholder={kind === 'deposit' ? 'Nómina' : 'Pago del alquiler'}
+          value={description}
+          aria-invalid={errors.description ? true : undefined}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+        {errors.description ? (
+          <FieldError>{errors.description}</FieldError>
+        ) : (
+          <FieldDescription>Opcional. Lo verás en tu historial.</FieldDescription>
         )}
       </Field>
 
@@ -426,25 +483,31 @@ function MovementForm({
             className="mt-0.5 size-4 accent-copper"
           />
           <span>
-            <span className="block text-[0.875rem] font-medium">Reservar y confirmar después</span>
+            <span className="block text-[0.875rem] font-medium">
+              Reservar y confirmar después
+            </span>
             <span className="mt-0.5 block text-[0.75rem] text-ink-soft">
-              Los fondos quedan retenidos y el dinero solo se mueve cuando lo
-              confirmes. Es el mismo paso que usa el asistente.
+              Los fondos quedan retenidos y el dinero solo se mueve cuando lo confirmes. Es
+              el mismo paso que usa el asistente.
             </span>
           </span>
         </label>
       )}
 
       <div className="flex items-center gap-3 pt-1">
-        <button type="submit" className="btn btn-primary" disabled={movement.isPending}>
+        <Button
+          type="submit"
+          disabled={movement.isPending}
+          className="bg-copper text-white hover:bg-copper/90"
+        >
           {movement.isPending && <Spinner />}
           {movement.isPending
             ? 'Enviando'
             : confirmFirst && canConfirmFirst
               ? 'Reservar fondos'
               : KINDS.find((option) => option.value === kind)?.label}
-        </button>
-        <Link to="/" className="text-[0.875rem] text-ink-soft hover:text-ink">
+        </Button>
+        <Link to="/panel" className="text-[0.875rem] text-ink-soft hover:text-ink">
           Cancelar
         </Link>
       </div>
@@ -453,16 +516,26 @@ function MovementForm({
 }
 
 /** What replaces the form once the movement has an outcome. */
-function Outcome({ transaction, onAgain }: { transaction: Transaction; onAgain: () => void }) {
+function Outcome({
+  transaction,
+  onAgain,
+}: {
+  transaction: Transaction
+  onAgain: () => void
+}) {
   const awaiting = transaction.confirmation && transaction.status === 'pending'
 
   return (
     <div className="mt-4 space-y-4">
       {awaiting ? (
         <>
-          <Notice tone="hold" title="Fondos reservados">
-            El dinero todavía no se ha movido. Confirma o cancela abajo.
-          </Notice>
+          <Alert className="border-hold/40 bg-hold/8 text-hold-text">
+            <CircleAlertIcon className="text-hold" />
+            <AlertTitle>Fondos reservados</AlertTitle>
+            <AlertDescription className="text-hold-text/85">
+              El dinero todavía no se ha movido y queda a la espera de que lo confirmes.
+            </AlertDescription>
+          </Alert>
           <ConfirmationCard
             card={{
               hold_id: transaction.confirmation!.hold_id,
@@ -477,7 +550,13 @@ function Outcome({ transaction, onAgain }: { transaction: Transaction; onAgain: 
       ) : (
         <div className="card p-5">
           <div className="flex items-center gap-2 text-credit">
-            <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              viewBox="0 0 16 16"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <path d="M3 8.5l3.5 3.5L13 4.5" />
             </svg>
             <p className="font-medium">{movementLabel(transaction.kind)} completada</p>
@@ -492,10 +571,10 @@ function Outcome({ transaction, onAgain }: { transaction: Transaction; onAgain: 
       )}
 
       <div className="flex items-center gap-3">
-        <button type="button" onClick={onAgain} className="btn btn-secondary">
+        <Button variant="outline" onClick={onAgain}>
           Hacer otra operación
-        </button>
-        <Link to="/" className="text-[0.875rem] text-ink-soft hover:text-ink">
+        </Button>
+        <Link to="/panel" className="text-[0.875rem] text-ink-soft hover:text-ink">
           Volver al resumen
         </Link>
       </div>

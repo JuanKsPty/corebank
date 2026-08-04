@@ -1,10 +1,13 @@
 import { useState } from 'react'
 
 import { ApiError } from '@/api/client'
+import { cn } from '@/lib/utils'
 import type { ConfirmationCard as Card } from '@/api/types'
 import { counterpartyLabel, moneyFromText, movementLabel } from '@/lib/format'
 import { useResolveConfirmation } from '@/lib/queries'
-import { Countdown, Spinner, cx } from './primitives'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { Countdown } from './primitives'
 
 /**
  * ConfirmationCard is the two buttons that decide whether money moves.
@@ -61,7 +64,7 @@ export function ConfirmationCard({
 
   return (
     <div
-      className={cx(
+      className={cn(
         'overflow-hidden rounded-[6px] border-2 border-hold/55 bg-paper-raised',
         // A left band in the hold colour, so the card reads as "reserved" at a
         // glance and is not mistaken for a completed movement.
@@ -71,11 +74,17 @@ export function ConfirmationCard({
       aria-label={`Confirmar ${movementLabel(card.kind).toLowerCase()} de ${moneyFromText(card.amount)}`}
     >
       <div className="flex items-center justify-between gap-3 border-b border-rule bg-hold/8 px-4 py-2">
-        <p className="type-eyebrow whitespace-nowrap text-[#8a6516]" style={{ letterSpacing: '0.08em' }}>
+        <p
+          className="type-eyebrow whitespace-nowrap text-[#8a6516]"
+          style={{ letterSpacing: '0.08em' }}
+        >
           {movementLabel(card.kind)} pendiente
         </p>
         <span className="flex items-center gap-1.5 text-[#8a6516]">
-          <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-hold" />
+          <span
+            aria-hidden="true"
+            className="size-1.5 animate-pulse rounded-full bg-hold"
+          />
           <Countdown
             until={card.expires_at}
             onElapsed={() => {
@@ -87,7 +96,9 @@ export function ConfirmationCard({
       </div>
 
       <div className="px-4 py-3.5">
-        <p className="type-figure text-[1.75rem] leading-none">{moneyFromText(card.amount)}</p>
+        <p className="type-figure text-[1.75rem] leading-none">
+          {moneyFromText(card.amount)}
+        </p>
 
         <dl className="mt-3.5 space-y-1.5 text-[0.8125rem]">
           <div className="flex gap-2">
@@ -95,7 +106,9 @@ export function ConfirmationCard({
             <dd className="type-figure">{counterpartyLabel(card.from_account)}</dd>
           </div>
           <div className="flex gap-2">
-            <dt className="w-14 shrink-0 text-ink-faint">{isWithdrawal ? 'Salida' : 'Hacia'}</dt>
+            <dt className="w-14 shrink-0 text-ink-faint">
+              {isWithdrawal ? 'Salida' : 'Hacia'}
+            </dt>
             <dd className="type-figure">{counterpartyLabel(card.to_account)}</dd>
           </div>
           {card.balance_if_confirmed && (
@@ -108,8 +121,8 @@ export function ConfirmationCard({
 
         {/* The sentence that matters most on the card. */}
         <p className="mt-3 text-[0.8125rem] leading-snug text-[#8a6516]">
-          Los fondos están reservados y tu saldo disponible ya lo refleja, pero el
-          dinero <strong className="font-semibold">no se ha movido</strong>.
+          Los fondos están reservados y tu saldo disponible ya lo refleja, pero el dinero{' '}
+          <strong className="font-semibold">no se ha movido</strong>.
         </p>
 
         {failure && (
@@ -120,29 +133,28 @@ export function ConfirmationCard({
 
         {expired ? (
           <p className="mt-3.5 rounded border border-rule bg-paper-sunken px-3 py-2 text-[0.8125rem] text-ink-soft">
-            La reserva expiró y los fondos volvieron a estar disponibles. Pídelo de
-            nuevo si aún lo quieres.
+            La reserva expiró y los fondos volvieron a estar disponibles. Pídelo de nuevo si
+            aún lo quieres.
           </p>
         ) : (
           <div className="mt-4 flex gap-2">
-            <button
-              type="button"
+            <Button
               onClick={() => void act('confirm')}
               disabled={working}
-              className="btn btn-primary flex-1"
+              className="flex-1 bg-copper text-white hover:bg-copper/90"
             >
               {working && resolve.variables?.action === 'confirm' && <Spinner />}
               Confirmar
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => void act('cancel')}
               disabled={working}
-              className="btn btn-secondary flex-1"
+              className="flex-1"
             >
               {working && resolve.variables?.action === 'cancel' && <Spinner />}
               Cancelar
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -156,7 +168,7 @@ function ResolvedCard({ card, action }: { card: Card; action: 'confirm' | 'cance
 
   return (
     <div
-      className={cx(
+      className={cn(
         'rounded-[6px] border px-4 py-3',
         confirmed ? 'border-credit/35 bg-credit/6' : 'border-rule bg-paper-sunken',
       )}
@@ -164,15 +176,32 @@ function ResolvedCard({ card, action }: { card: Card; action: 'confirm' | 'cance
     >
       <div className="flex items-center gap-2">
         {confirmed ? (
-          <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-credit" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5 shrink-0 text-credit"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <path d="M3 8.5l3.5 3.5L13 4.5" />
           </svg>
         ) : (
-          <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-ink-faint" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-3.5 shrink-0 text-ink-faint"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
             <path d="M4 4l8 8M12 4l-8 8" />
           </svg>
         )}
-        <p className={cx('text-[0.875rem] font-medium', confirmed ? 'text-credit' : 'text-ink-soft')}>
+        <p
+          className={cn(
+            'text-[0.875rem] font-medium',
+            confirmed ? 'text-credit' : 'text-ink-soft',
+          )}
+        >
           {confirmed
             ? `${movementLabel(card.kind)} de ${moneyFromText(card.amount)} completada`
             : `${movementLabel(card.kind)} cancelada`}

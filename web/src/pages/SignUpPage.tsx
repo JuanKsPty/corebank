@@ -1,8 +1,20 @@
+import { CircleAlertIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
-import { Field, Notice, Spinner } from '@/components/primitives'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { useSession } from '@/lib/session'
 import {
   emailProblem,
@@ -87,67 +99,73 @@ export function SignUpPage() {
         {/* A field-level failure is already shown on the field; this only appears
             for something the form cannot attribute to one input. */}
         {failure && !failure.fields && (
-          <Notice
-            tone="error"
-            title="No se pudo abrir la cuenta"
-            requestId={failure.status >= 500 ? failure.requestId : undefined}
-            onDismiss={() => setFailure(null)}
-          >
-            {failure.message}
-          </Notice>
+          <Alert variant="destructive">
+            <CircleAlertIcon />
+            <AlertTitle>No se pudo abrir la cuenta</AlertTitle>
+            <AlertDescription>
+              {failure.message}
+              {failure.status >= 500 && failure.requestId && (
+                <span className="type-figure mt-1 block text-[0.6875rem] opacity-70">
+                  ref {failure.requestId}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
         )}
 
-        <Field label="Nombre completo" error={errors.full_name}>
-          {(props) => (
-            <input
-              {...props}
-              className="field-input"
-              autoComplete="name"
-              autoFocus
-              value={fullName}
-              onChange={(event) => {
-                setFullName(event.target.value)
-                if (errors.full_name) setErrors((p) => ({ ...p, full_name: undefined }))
-              }}
-              placeholder="Ana Pérez"
-            />
-          )}
+        <Field data-invalid={errors.full_name ? true : undefined}>
+          <FieldLabel htmlFor="nombre">Nombre completo</FieldLabel>
+          <Input
+            id="nombre"
+            autoComplete="name"
+            autoFocus
+            value={fullName}
+            aria-invalid={errors.full_name ? true : undefined}
+            onChange={(event) => {
+              setFullName(event.target.value)
+              if (errors.full_name) setErrors((p) => ({ ...p, full_name: undefined }))
+            }}
+            placeholder="Ana Pérez"
+          />
+          {errors.full_name && <FieldError>{errors.full_name}</FieldError>}
         </Field>
 
-        <Field label="Correo" error={errors.email}>
-          {(props) => (
-            <input
-              {...props}
-              type="email"
-              className="field-input"
-              autoComplete="username"
-              value={email}
-              onChange={(event) => {
-                setEmail(event.target.value)
-                if (errors.email) setErrors((p) => ({ ...p, email: undefined }))
-              }}
-              placeholder="tu@correo.com"
-            />
-          )}
+        <Field data-invalid={errors.email ? true : undefined}>
+          <FieldLabel htmlFor="correo">Correo</FieldLabel>
+          <Input
+            id="correo"
+            type="email"
+            autoComplete="username"
+            value={email}
+            aria-invalid={errors.email ? true : undefined}
+            onChange={(event) => {
+              setEmail(event.target.value)
+              if (errors.email) setErrors((p) => ({ ...p, email: undefined }))
+            }}
+            placeholder="tu@correo.com"
+          />
+          {errors.email && <FieldError>{errors.email}</FieldError>}
         </Field>
 
-        <Field
-          label="Contraseña"
-          error={errors.password}
-          hint="Al menos 8 caracteres, con una letra y un número."
-        >
-          {(props) => (
-            <input
-              {...props}
-              type="password"
-              className="field-input"
-              autoComplete="new-password"
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value)
-                if (errors.password) setErrors((p) => ({ ...p, password: undefined }))
-              }}
-            />
+        <Field data-invalid={errors.password ? true : undefined}>
+          <FieldLabel htmlFor="contrasena">Contraseña</FieldLabel>
+          <Input
+            id="contrasena"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            aria-invalid={errors.password ? true : undefined}
+            onChange={(event) => {
+              setPassword(event.target.value)
+              if (errors.password) setErrors((p) => ({ ...p, password: undefined }))
+            }}
+          />
+          {errors.password ? (
+            <FieldError>{errors.password}</FieldError>
+          ) : (
+            <FieldDescription>
+              Al menos 8 caracteres, con una letra y un número.
+            </FieldDescription>
           )}
         </Field>
 
@@ -160,7 +178,13 @@ export function SignUpPage() {
               <span className="text-ink-faint">{passwordIssue}</span>
             ) : (
               <>
-                <svg viewBox="0 0 16 16" className="size-3" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  viewBox="0 0 16 16"
+                  className="size-3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M3.5 8.5l3 3 6-7" />
                 </svg>
                 Cumple los requisitos
@@ -169,8 +193,8 @@ export function SignUpPage() {
           </p>
         )}
 
-        <fieldset>
-          <legend className="field-label">Tu primera cuenta</legend>
+        <FieldSet data-invalid={errors.account_type ? true : undefined}>
+          <FieldLegend variant="label">Tu primera cuenta</FieldLegend>
           <div className="grid gap-2 sm:grid-cols-3">
             {ACCOUNT_TYPES.map((type) => (
               <label
@@ -194,13 +218,17 @@ export function SignUpPage() {
               </label>
             ))}
           </div>
-          {errors.account_type && <p className="field-error">{errors.account_type}</p>}
-        </fieldset>
+          {errors.account_type && <FieldError>{errors.account_type}</FieldError>}
+        </FieldSet>
 
-        <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
+        <Button
+          type="submit"
+          disabled={submitting}
+          className="w-full bg-copper text-white hover:bg-copper/90"
+        >
           {submitting && <Spinner />}
           {submitting ? 'Abriendo tu cuenta' : 'Abrir mi cuenta'}
-        </button>
+        </Button>
       </form>
     </AuthLayout>
   )

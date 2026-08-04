@@ -1,20 +1,40 @@
 import { useState } from 'react'
+import { ListFilterIcon, SearchIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import type { MovementKind } from '@/api/types'
+import type { Account, MovementKind } from '@/api/types'
+import { DateField } from '@/components/DateField'
 import { MovementList } from '@/components/MovementList'
-import { Notice, Spinner, cx } from '@/components/primitives'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { Spinner } from '@/components/ui/spinner'
 import { accountTypeLabel } from '@/lib/format'
 import { useHistory, useMe } from '@/lib/queries'
+
+const KINDS: Array<{ value: MovementKind | ''; label: string }> = [
+  { value: '', label: 'Todos' },
+  { value: 'deposit', label: 'Depósitos' },
+  { value: 'withdrawal', label: 'Retiros' },
+  { value: 'transfer', label: 'Transferencias' },
+  { value: 'internal_transfer', label: 'Traspasos' },
+]
 
 /**
  * The statement.
  *
- * Paging is forward-only through a cursor, and the pages are kept in a stack so
- * "back" is a pop rather than another request. That mirrors what the API actually
- * offers: a cursor names a position in a list that is still growing, and inventing
- * a page number on top of it would produce a control that skips and repeats rows as
- * new movements arrive.
+ * Paging is forward-only through a cursor, and the pages are kept in a stack so "back"
+ * is a pop rather than another request. That mirrors what the API actually offers: a
+ * cursor names a position in a list that is still growing, and inventing a page number
+ * on top of it would produce a control that skips and repeats rows as new movements
+ * arrive.
+ *
+ * On a phone the filters move into a sheet. Five controls above the statement pushed the
+ * movements off the screen entirely — the page was a form with a list underneath it,
+ * when what somebody opens it for is the list.
  */
 export function HistoryPage() {
   const me = useMe()
@@ -43,126 +63,110 @@ export function HistoryPage() {
   const accounts = me.data?.accounts ?? []
   const ownedAccounts = new Set(accounts.map((account) => account.account_number))
 
-  /** Any filter change starts the listing again: a cursor from the old filter
-      points into a list that no longer exists. */
+  /**
+   * Any filter change starts the listing again: a cursor from the old filter points into
+   * a list that no longer exists.
+   */
   function changeFilter(apply: () => void) {
     apply()
     setTrail([])
   }
 
-  const filtered = Boolean(accountNumber || kind || search || since || until)
+  const active = [accountNumber, kind, search, since, until].filter(Boolean).length
+  const filtered = active > 0
+
+  const clearAll = () =>
+    changeFilter(() => {
+      setAccountNumber('')
+      setKind('')
+      setSearch('')
+      setSince('')
+      setUntil('')
+    })
+
+  const controls = (
+    <Filters
+      accounts={accounts}
+      accountNumber={accountNumber}
+      kind={kind}
+      since={since}
+      until={until}
+      onAccountNumber={(value) => changeFilter(() => setAccountNumber(value))}
+      onKind={(value) => changeFilter(() => setKind(value))}
+      onSince={(value) => changeFilter(() => setSince(value))}
+      onUntil={(value) => changeFilter(() => setUntil(value))}
+    />
+  )
 
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-baseline justify-between gap-3">
-        <div>
+        {/* Hidden on a phone, where the app bar already says "Historial". */}
+        <div className="hidden md:block">
           <p className="type-eyebrow">Historial</p>
           <h1 className="type-display mt-1.5 text-[1.75rem]">Todos tus movimientos</h1>
         </div>
-        <Link to="/mover" className="btn btn-secondary">
-          Mover dinero
-        </Link>
+
+        <div className="flex flex-1 items-center gap-2 md:flex-none">
+          {/* The sheet is the phone's filter surface; above `md` the controls are simply
+              on the page, where there is room for them. */}
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" className="md:hidden">
+                <ListFilterIcon aria-hidden="true" />
+                Filtros
+                {active > 0 && (
+                  <span className="type-figure ml-0.5 flex size-5 items-center justify-center rounded-full bg-copper text-[0.625rem] text-white">
+                    {active}
+                  </span>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="type-display text-[1.125rem]">Filtrar movimientos</SheetTitle>
+              </SheetHeader>
+              <div className="px-4 pb-6">
+                {controls}
+                {filtered && (
+                  <Button variant="outline" className="mt-4 w-full" onClick={clearAll}>
+                    Limpiar los filtros
+                  </Button>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <SearchBox
+            value={search}
+            onChange={setSearch}
+            onSubmit={() => setTrail([])}
+            className="min-w-0 flex-1 md:w-64 md:flex-none"
+          />
+
+          <Button asChild variant="outline" className="hidden shrink-0 md:inline-flex">
+            <Link to="/mover">Mover dinero</Link>
+          </Button>
+        </div>
       </header>
 
-      <section className="card p-4" aria-label="Filtros">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="block">
-            <span className="field-label">Cuenta</span>
-            <select
-              className="field-input"
-              value={accountNumber}
-              onChange={(event) => changeFilter(() => setAccountNumber(event.target.value))}
-            >
-              <option value="">Todas</option>
-              {accounts.map((account) => (
-                <option key={account.account_number} value={account.account_number}>
-                  {accountTypeLabel(account.account_type)} · {account.account_number}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="field-label">Tipo</span>
-            <select
-              className="field-input"
-              value={kind}
-              onChange={(event) => changeFilter(() => setKind(event.target.value as MovementKind | ''))}
-            >
-              <option value="">Todos</option>
-              <option value="deposit">Depósitos</option>
-              <option value="withdrawal">Retiros</option>
-              <option value="transfer">Transferencias</option>
-              <option value="internal_transfer">Traspasos</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="field-label">Desde</span>
-            <input
-              type="date"
-              className="field-input"
-              value={since}
-              max={until || undefined}
-              onChange={(event) => changeFilter(() => setSince(event.target.value))}
-            />
-          </label>
-
-          <label className="block">
-            <span className="field-label">Hasta</span>
-            <input
-              type="date"
-              className="field-input"
-              value={until}
-              min={since || undefined}
-              onChange={(event) => changeFilter(() => setUntil(event.target.value))}
-            />
-          </label>
-        </div>
-
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            setTrail([])
-          }}
-        >
-          <label className="flex-1">
-            <span className="sr-only">Buscar en el concepto</span>
-            <input
-              className="field-input"
-              placeholder="Buscar en el concepto…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-          <button type="submit" className="btn btn-secondary shrink-0">
-            Buscar
-          </button>
-          {filtered && (
-            <button
-              type="button"
-              className="btn btn-secondary shrink-0"
-              onClick={() =>
-                changeFilter(() => {
-                  setAccountNumber('')
-                  setKind('')
-                  setSearch('')
-                  setSince('')
-                  setUntil('')
-                })
-              }
-            >
-              Limpiar
-            </button>
-          )}
-        </form>
+      {/* The controls on the page, from `md` up. */}
+      <section className="card hidden p-4 md:block" aria-label="Filtros">
+        {controls}
+        {filtered && (
+          <Button variant="ghost" size="sm" className="mt-3 text-ink-soft" onClick={clearAll}>
+            Limpiar los filtros
+          </Button>
+        )}
       </section>
 
       {history.isError ? (
-        <Notice tone="error" title="No pudimos cargar el historial">
-          Vuelve a intentarlo, o limpia los filtros si acabas de cambiarlos.
-        </Notice>
+        <Alert variant="destructive">
+          <AlertTitle>No pudimos cargar el historial</AlertTitle>
+          <AlertDescription>
+            Vuelve a intentarlo, o limpia los filtros si acabas de cambiarlos.
+          </AlertDescription>
+        </Alert>
       ) : (
         <section className="card">
           <div className="px-4 py-1">
@@ -177,10 +181,14 @@ export function HistoryPage() {
                   : 'Haz un ingreso o una transferencia y aparecerá aquí al instante.'
               }
               emptyAction={
-                filtered ? undefined : (
-                  <Link to="/mover" className="btn btn-secondary">
-                    Mover dinero
-                  </Link>
+                filtered ? (
+                  <Button variant="outline" onClick={clearAll}>
+                    Limpiar los filtros
+                  </Button>
+                ) : (
+                  <Button asChild variant="outline">
+                    <Link to="/mover">Mover dinero</Link>
+                  </Button>
                 )
               }
             />
@@ -188,23 +196,23 @@ export function HistoryPage() {
 
           {(trail.length > 0 || history.data?.has_more) && (
             <div className="flex items-center justify-between gap-3 border-t border-rule px-4 py-3">
-              <button
-                type="button"
-                className="btn btn-secondary"
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={trail.length === 0 || history.isFetching}
                 onClick={() => setTrail((previous) => previous.slice(0, -1))}
               >
                 Anteriores
-              </button>
+              </Button>
 
-              <span className={cx('flex items-center gap-2 text-[0.75rem] text-ink-faint')}>
+              <span className="flex items-center gap-2 text-[0.75rem] text-ink-faint">
                 {history.isFetching && <Spinner />}
                 Página {trail.length + 1}
               </span>
 
-              <button
-                type="button"
-                className="btn btn-secondary"
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={!history.data?.next_cursor || history.isFetching}
                 onClick={() => {
                   const next = history.data?.next_cursor
@@ -212,11 +220,124 @@ export function HistoryPage() {
                 }}
               >
                 Siguientes
-              </button>
+              </Button>
             </div>
           )}
         </section>
       )}
     </div>
+  )
+}
+
+/**
+ * The four filters, rendered identically on the page and inside the phone's sheet.
+ *
+ * One component rather than two copies: the previous shell kept two renderings of the
+ * navigation in step only because they were three lines apart in one file, and that is
+ * not a property worth relying on twice.
+ */
+function Filters({
+  accounts,
+  accountNumber,
+  kind,
+  since,
+  until,
+  onAccountNumber,
+  onKind,
+  onSince,
+  onUntil,
+}: {
+  accounts: Account[]
+  accountNumber: string
+  kind: MovementKind | ''
+  since: string
+  until: string
+  onAccountNumber: (value: string) => void
+  onKind: (value: MovementKind | '') => void
+  onSince: (value: string) => void
+  onUntil: (value: string) => void
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Field>
+        <FieldLabel htmlFor="filtro-cuenta">Cuenta</FieldLabel>
+        <NativeSelect
+          id="filtro-cuenta"
+          className="w-full"
+          value={accountNumber}
+          onChange={(event) => onAccountNumber(event.target.value)}
+        >
+          <NativeSelectOption value="">Todas</NativeSelectOption>
+          {accounts.map((account) => (
+            <NativeSelectOption key={account.account_number} value={account.account_number}>
+              {accountTypeLabel(account.account_type)} · {account.account_number}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor="filtro-tipo">Tipo</FieldLabel>
+        <NativeSelect
+          id="filtro-tipo"
+          className="w-full"
+          value={kind}
+          onChange={(event) => onKind(event.target.value as MovementKind | '')}
+        >
+          {KINDS.map((option) => (
+            <NativeSelectOption key={option.value} value={option.value}>
+              {option.label}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </Field>
+
+      <DateField label="Desde" value={since} onChange={onSince} max={until || undefined} />
+      <DateField label="Hasta" value={until} onChange={onUntil} min={since || undefined} />
+    </div>
+  )
+}
+
+/** The concept search, with its button inside the field rather than beside it. */
+function SearchBox({
+  value,
+  onChange,
+  onSubmit,
+  className,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onSubmit: () => void
+  className?: string
+}) {
+  return (
+    <form
+      className={className}
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <label htmlFor="buscar" className="sr-only">
+        Buscar en el concepto
+      </label>
+      <InputGroup>
+        <InputGroupAddon>
+          <SearchIcon className="size-4" aria-hidden="true" />
+        </InputGroupAddon>
+        <InputGroupInput
+          id="buscar"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Buscar…"
+          autoComplete="off"
+        />
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton type="submit" size="icon-xs" aria-label="Buscar">
+            <SearchIcon className="size-3.5" aria-hidden="true" />
+          </InputGroupButton>
+        </InputGroupAddon>
+      </InputGroup>
+    </form>
   )
 }

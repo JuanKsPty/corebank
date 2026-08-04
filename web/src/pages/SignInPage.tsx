@@ -1,8 +1,13 @@
+import { CircleAlertIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
-import { Field, Notice, Spinner } from '@/components/primitives'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Field, FieldError, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { useSession } from '@/lib/session'
 import { emailProblem, isClean, type Errors } from '@/lib/validate'
 import { AuthLayout, AuthLink, DemoCredentials } from './AuthLayout'
@@ -77,62 +82,73 @@ export function SignInPage() {
     >
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
         {failure && (
-          <Notice
-            tone="error"
-            title={
-              failure.status === 429
+          <Alert variant="destructive">
+            <CircleAlertIcon />
+            <AlertTitle>
+              {failure.status === 429
                 ? 'Demasiados intentos'
                 : failure.status === 401
                   ? 'No pudimos entrar'
-                  : 'No se pudo completar el acceso'
-            }
-            requestId={failure.status >= 500 ? failure.requestId : undefined}
-            onDismiss={() => setFailure(null)}
-          >
-            {failure.message}
-          </Notice>
+                  : 'No se pudo completar el acceso'}
+            </AlertTitle>
+            <AlertDescription>
+              {failure.message}
+              {/* The request id is shown on a server fault only, because it is the one
+                  thing that makes the failure findable in the logs. */}
+              {failure.status >= 500 && failure.requestId && (
+                <span className="type-figure mt-1 block text-[0.6875rem] opacity-70">
+                  ref {failure.requestId}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
         )}
 
-        <Field label="Correo" error={errors.email}>
-          {(props) => (
-            <input
-              {...props}
-              type="email"
-              className="field-input"
-              autoComplete="username"
-              autoFocus
-              value={email}
-              onChange={(event) => {
-                setEmail(event.target.value)
-                // The message clears as soon as the customer starts fixing it,
-                // rather than staying until they submit again.
-                if (errors.email) setErrors((previous) => ({ ...previous, email: undefined }))
-              }}
-              placeholder="tu@correo.com"
-            />
-          )}
+        <Field data-invalid={errors.email ? true : undefined}>
+          <FieldLabel htmlFor="correo">Correo</FieldLabel>
+          <Input
+            id="correo"
+            type="email"
+            autoComplete="username"
+            autoFocus
+            value={email}
+            aria-invalid={errors.email ? true : undefined}
+            onChange={(event) => {
+              setEmail(event.target.value)
+              // The message clears as soon as the customer starts fixing it, rather
+              // than staying until they submit again.
+              if (errors.email) setErrors((previous) => ({ ...previous, email: undefined }))
+            }}
+            placeholder="tu@correo.com"
+          />
+          {errors.email && <FieldError>{errors.email}</FieldError>}
         </Field>
 
-        <Field label="Contraseña" error={errors.password}>
-          {(props) => (
-            <input
-              {...props}
-              type="password"
-              className="field-input"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value)
-                if (errors.password) setErrors((previous) => ({ ...previous, password: undefined }))
-              }}
-            />
-          )}
+        <Field data-invalid={errors.password ? true : undefined}>
+          <FieldLabel htmlFor="contrasena">Contraseña</FieldLabel>
+          <Input
+            id="contrasena"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            aria-invalid={errors.password ? true : undefined}
+            onChange={(event) => {
+              setPassword(event.target.value)
+              if (errors.password)
+                setErrors((previous) => ({ ...previous, password: undefined }))
+            }}
+          />
+          {errors.password && <FieldError>{errors.password}</FieldError>}
         </Field>
 
-        <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
+        <Button
+          type="submit"
+          disabled={submitting}
+          className="w-full bg-copper text-white hover:bg-copper/90"
+        >
           {submitting && <Spinner />}
           {submitting ? 'Entrando' : 'Entrar'}
-        </button>
+        </Button>
       </form>
 
       <div className="mt-5">
