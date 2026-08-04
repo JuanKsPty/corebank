@@ -1,14 +1,20 @@
 import { Link } from 'react-router-dom'
 
 import { Wordmark } from '@/components/Wordmark'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 /**
  * AuthLayout is the frame around signing in and signing up.
  *
- * Two panels: the form on paper, and beside it an ink panel that says what this
- * bank actually is. The claim on the right is not marketing filler — it is the one
- * true, unusual thing about the system, stated plainly, and it is the same claim
- * the dashboard's balance bar then demonstrates.
+ * One card, centred, and nothing else. This used to be two panels — the form beside an
+ * ink panel restating what the bank is — which is a reasonable thing for a landing page
+ * to do and the wrong thing here. Somebody who reached `/entrar` has already decided;
+ * they came to type a password, and half the screen arguing the product's merits is an
+ * obstacle between them and the only control that matters. The argument lives on `/`,
+ * where it belongs and where it is demonstrated rather than asserted.
+ *
+ * The wordmark stays, because a form that asks for a password should say whose it is.
  */
 export function AuthLayout({
   title,
@@ -22,43 +28,21 @@ export function AuthLayout({
   footer: React.ReactNode
 }) {
   return (
-    <div className="grid min-h-dvh lg:grid-cols-[1fr_minmax(0,26rem)]">
-      {/* On a narrow screen the panel moves below the form: the form is what the
-          visitor came for. */}
-      <div className="order-2 flex flex-col justify-center bg-ink px-6 py-12 text-paper lg:order-1 lg:px-14">
-        <div className="mx-auto w-full max-w-lg">
-          <Wordmark className="h-5 text-paper" />
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-paper px-4 py-10">
+      <div className="w-full max-w-[26rem]">
+        <Link
+          to="/"
+          aria-label="corebank, ir al inicio"
+          className="mx-auto mb-8 block w-fit"
+        >
+          <Wordmark className="h-[18px] text-ink" />
+        </Link>
 
-          <p className="type-display mt-9 text-[clamp(1.5rem,3.2vw,2.25rem)] text-paper">
-            Cada movimiento tiene dos lados.
-          </p>
-          <p className="mt-3 max-w-md text-[0.9375rem] leading-relaxed text-paper/70">
-            Los saldos no se guardan en una columna: se derivan de un ledger de
-            doble entrada. Por eso un sobregiro no es una validación que se pueda
-            olvidar, y por eso puedes ver el dinero reservado antes de confirmarlo.
-          </p>
-
-          <dl className="mt-10 grid gap-5 sm:grid-cols-3">
-            {[
-              ['Doble entrada', 'Todo cargo tiene su abono'],
-              ['Centavos enteros', 'Ningún importe pasa por un float'],
-              ['Confirmación real', 'Los fondos se reservan, no se mueven'],
-            ].map(([term, detail]) => (
-              <div key={term} className="border-t border-paper/20 pt-3">
-                <dt className="type-eyebrow text-paper/50">{term}</dt>
-                <dd className="mt-1 text-[0.8125rem] leading-snug text-paper/80">{detail}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </div>
-
-      <div className="order-1 flex flex-col justify-center px-6 py-12 lg:order-2 lg:px-10">
-        <div className="mx-auto w-full max-w-sm">
-          <h1 className="type-display text-[1.625rem]">{title}</h1>
+        <div className="card bg-paper-raised p-6 sm:p-7">
+          <h1 className="type-display text-[1.5rem]">{title}</h1>
           <p className="mt-1.5 text-[0.9375rem] text-ink-soft">{subtitle}</p>
 
-          <div className="mt-7">{children}</div>
+          <div className="mt-6">{children}</div>
 
           <div className="mt-6 border-t border-rule pt-5 text-[0.875rem] text-ink-soft">
             {footer}
@@ -72,9 +56,11 @@ export function AuthLayout({
 /**
  * DemoCredentials fills the form with a seeded customer.
  *
- * The dataset's passwords are published in the README anyway, and an evaluator who
- * has to copy an account out of a JSON file before they can look at anything is
- * being made to work for no reason. The button says exactly what it does.
+ * Kept even though the panel around it is gone, because it is not information about the
+ * product — it is the key to the door. The dataset's passwords are published in the
+ * README anyway, and anyone reviewing this who has to copy an account number out of a
+ * 2 MB JSON file before they can look at anything is being made to work for no reason.
+ * The button says exactly what it does.
  */
 export function DemoCredentials({
   onUse,
@@ -96,13 +82,15 @@ export function DemoCredentials({
               <p className="type-figure truncate text-[0.75rem]">{account.email}</p>
               <p className="text-[0.6875rem] text-ink-faint">{account.note}</p>
             </div>
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => onUse(account.email, account.password)}
-              className="btn btn-secondary shrink-0 px-2.5 py-1 text-[0.75rem]"
+              className="h-7 shrink-0 px-2.5 text-[0.75rem]"
             >
               Usar
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
@@ -112,7 +100,13 @@ export function DemoCredentials({
 
 export function AuthLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
-    <Link to={to} className="font-medium text-copper underline decoration-copper/35 underline-offset-2 hover:decoration-copper">
+    <Link
+      to={to}
+      className={cn(
+        'font-medium text-copper underline decoration-copper/35 underline-offset-2',
+        'hover:decoration-copper',
+      )}
+    >
       {children}
     </Link>
   )
