@@ -1,0 +1,91 @@
+name: corebank
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — identity, credentials and transaction metadata.
+  # It deliberately holds NO balance column: balances live in TigerBeetle.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-corebank}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corebank}
+      POSTGRES_DB: ${POSTGRES_DB:-corebank}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-corebank} -d ${POSTGRES_DB:-corebank}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # TigerBeetle data file initialisation.
+  #
+  # `format` must run exactly once per data file: running it twice destroys the
+  # ledger, and starting without it fails outright. This one-shot service is
+  # idempotent — it checks for the file before formatting — and the replica
+  # below waits for it to exit successfully.
+  # ---------------------------------------------------------------------------
+  tigerbeetle-format:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.9
+    security_opt:
+      # Docker's default seccomp profile blocks the io_uring syscalls that
+      # TigerBeetle requires (io_uring_setup / _enter / _register). Without
+      # this, `format` aborts with "io_uring is not available: PermissionDenied".
+      # Scoped to the TigerBeetle services only — the API and web containers
+      # keep the default profile.
+      - seccomp=unconfined
+    volumes:
+      - tb-data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ -f /data/0_0.tigerbeetle ]; then
+          echo "TigerBeetle data file already present — skipping format."
+        else
+          echo "Formatting TigerBeetle data file..."
+          /tigerbeetle format \
+            --cluster=${TB_CLUSTER_ID:-0} \
+            --replica=0 \
+            --replica-count=1 \
+            /data/0_0.tigerbeetle
+        fi
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # TigerBeetle replica — the financial source of truth.
+  # ---------------------------------------------------------------------------
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.9
+    security_opt:
+      - seccomp=unconfined # see tigerbeetle-format above
+    volumes:
+      - tb-data:/data
+    command:
+      - start
+      - --addresses=0.0.0.0:3001
+      - --cache-grid=${TB_CACHE_GRID:-256MiB}
+      - /data/0_0.tigerbeetle
+    ports:
+      - "${TB_PORT:-3001}:3001"
+    depends_on:
+      tigerbeetle-format:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/bin/nc", "-z", "127.0.0.1", "3001"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  tb-data:

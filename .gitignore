@@ -1,0 +1,27 @@
+# Private working material — never published
+info/
+
+# Secrets
+.env
+*.pem
+
+# Go build output
+api/bin/
+*.test
+*.out
+coverage.*
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+*.local
+
+# TigerBeetle data files (created by `format`, never committed)
+*.tigerbeetle
+tb-data/
+
+# Editors / OS
+.DS_Store
+.idea/
+*.swp
