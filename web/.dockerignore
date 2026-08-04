@@ -1,0 +1,12 @@
+# node_modules is reinstalled from the lockfile inside the image; sending the
+# host's copy would upload ~120 MB and risk shipping binaries built for the
+# wrong platform.
+node_modules
+dist
+.vite
+
+# Local-only
+.env
+.env.*
+*.log
+.DS_Store

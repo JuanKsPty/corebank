@@ -1,0 +1,11 @@
+# Compiled output and local artefacts. The module cache is populated inside the
+# image by `go mod download`.
+bin
+*.test
+*.out
+
+# Local-only
+.env
+.env.*
+*.log
+.DS_Store
