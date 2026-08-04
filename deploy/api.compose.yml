@@ -1,0 +1,87 @@
+# The API and the dataset import, as deployed.
+#
+# Separate from docker-compose.yml because that file is the whole system on one
+# host — what somebody who just cloned the repository runs. Here the stores are
+# their own deployments: PostgreSQL is a managed resource and the ledger has its
+# own stack, so this file contains only the two things that share a lifecycle.
+#
+# Not a Dokploy "Application", which would deploy this as a Swarm service. Swarm
+# ignores security_opt, and the TigerBeetle client opens its own io_uring — under
+# the default seccomp profile it aborts with "failed to initialize IO:
+# PermissionDenied" and takes the process down. This has to be plain compose.
+
+services:
+  api:
+    build:
+      context: ../api
+    image: corebank-api
+    security_opt:
+      # Required by the ledger client, not by the HTTP server. See the note above.
+      - seccomp=unconfined
+    environment:
+      HTTP_ADDR: ":8080"
+      # The managed PostgreSQL, by Swarm service name on the shared network. pgx
+      # resolves hostnames, so no fixed address is needed here.
+      DATABASE_URL: ${DATABASE_URL}
+      # The ledger, by fixed address: its client parses this itself and takes only
+      # IP:port, refusing a hostname with "invalid client cluster address". The
+      # address is assigned in the ledger's own stack.
+      TB_ADDRESSES: ${TB_ADDRESSES:-10.77.0.10:3001}
+      TB_CLUSTER_ID: ${TB_CLUSTER_ID:-0}
+      ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Set in the deployment's variables, never in this file. Left empty the API
+      # signs with a per-process secret and every restart logs everybody out.
+      JWT_SECRET: ${JWT_SECRET}
+      CONFIRMATION_TTL: ${CONFIRMATION_TTL:-2m}
+      # Empty is a supported state: the assistant answers from its rule-based
+      # fallback, drives the same MCP tools and the same confirmation flow, and the
+      # interface says which engine is active.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+    # No published ports. Traefik reaches this over the shared network.
+    networks:
+      - dokploy-network
+      - ledger
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  # One-shot, and idempotent by a marker row: after the first run it finds the
+  # marker and exits without touching anything.
+  seed:
+    build:
+      context: ../api
+    image: corebank-api
+    command: ["seed"]
+    security_opt:
+      - seccomp=unconfined # the ledger client needs it; see `api`
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TB_ADDRESSES: ${TB_ADDRESSES:-10.77.0.10:3001}
+      TB_CLUSTER_ID: ${TB_CLUSTER_ID:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      # Waits for the API, which is what applies the migrations this needs tables
+      # from.
+      api:
+        condition: service_healthy
+    networks:
+      - dokploy-network
+      - ledger
+    restart: "no"
+
+networks:
+  # Dokploy's shared network: how Traefik reaches the API and how the API reaches
+  # the managed PostgreSQL.
+  dokploy-network:
+    external: true
+  # Created by the ledger's own stack, which is why it is external here — this
+  # deployment joins it rather than defining it, and cannot take it down.
+  ledger:
+    name: corebank-ledger
+    external: true
