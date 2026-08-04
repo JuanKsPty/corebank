@@ -27,6 +27,12 @@ var (
 	// number. With twelve random digits this indicates a broken generator rather
 	// than a full namespace.
 	ErrNumberUnavailable = errors.New("accounts: could not allocate an account number")
+
+	// ErrTooManyAccounts is returned when a customer already holds the most accounts
+	// one person may open. A real bank has such a limit for anti-abuse reasons and so
+	// does this one; without it a single session could open accounts until the number
+	// space ran short, and every one of them would be a row the statement has to scan.
+	ErrTooManyAccounts = errors.New("accounts: the customer already holds the maximum number of accounts")
 )
 
 // Account is an account with the balance the ledger reports for it.
@@ -47,6 +53,11 @@ func NewService(db *store.DB, book ledger.Ledger) *Service {
 
 // numberAttempts bounds the retry loop that looks for a free account number.
 const numberAttempts = 5
+
+// maxAccountsPerCustomer caps how many accounts one person may hold. The seeded
+// dataset's busiest customer has three, so this leaves room to open more without
+// making the limit feel arbitrary.
+const maxAccountsPerCustomer = 6
 
 // Open creates an account for a user: a row in PostgreSQL and the matching
 // account in the ledger.
@@ -228,4 +239,53 @@ func (s *Service) withBalances(ctx context.Context, rows []store.Account) ([]Acc
 		out = append(out, Account{Account: r, Balance: balance})
 	}
 	return out, nil
+}
+
+// OpenFor opens an additional account for an existing customer.
+//
+// The difference from Open is the transaction: registration already has one open and
+// needs its user and first account to commit together, so Open takes the queries.
+// Everything after registration comes through here, which owns the transaction and can
+// therefore retry it.
+//
+// That retry is the reason this cannot simply be Open with a wrapper. An account number
+// is allocated by pre-checking for a free one and relying on the unique constraint as
+// the authority; when the constraint speaks, the statement has already aborted the
+// transaction, so the only way forward is a new one. Registration handles that by
+// retrying the whole registration. Here the whole thing is just this.
+func (s *Service) OpenFor(ctx context.Context, userID uuid.UUID, kind ledger.AccountKind) (Account, error) {
+	held, err := s.db.Q().AccountsByUser(ctx, userID)
+	if err != nil {
+		return Account{}, err
+	}
+	if len(held) >= maxAccountsPerCustomer {
+		return Account{}, fmt.Errorf("%w: %d", ErrTooManyAccounts, len(held))
+	}
+
+	var opened store.Account
+	for attempt := 0; attempt < numberAttempts; attempt++ {
+		err = s.db.InTx(ctx, func(q *store.Queries) error {
+			var openErr error
+			opened, openErr = s.Open(ctx, q, userID, kind)
+			return openErr
+		})
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrNumberUnavailable) {
+			return Account{}, err
+		}
+	}
+	if err != nil {
+		return Account{}, err
+	}
+
+	// Read the balance back rather than assuming zero. It is zero, but composing the
+	// response the same way every other endpoint does means the new account cannot be
+	// the one shape the frontend has to special-case.
+	withBalance, err := s.withBalances(ctx, []store.Account{opened})
+	if err != nil {
+		return Account{}, err
+	}
+	return withBalance[0], nil
 }

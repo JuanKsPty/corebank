@@ -9,6 +9,7 @@ import (
 
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
 	"github.com/JuanKsPty/corebank/api/internal/identity"
+	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/money"
 )
 
@@ -32,6 +33,7 @@ func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 func (h *Handler) Routes(history http.HandlerFunc) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", h.list)
+	r.Post("/", h.open)
 	r.Get("/{number}", h.get)
 	r.Get("/{number}/balance", h.balance)
 	r.Get("/{number}/transactions", history)
@@ -49,6 +51,36 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		Accounts: NewViews(list),
 		Total:    h.svc.Total(r.Context(), list).Amount(),
 	})
+}
+
+// open opens an additional account for the authenticated customer.
+//
+// The owner is taken from the request's identity and never from the body. That is the
+// same rule the MCP tools follow, and for the same reason: an endpoint that accepted a
+// user id would be one forged field away from opening an account in somebody else's
+// name.
+func (h *Handler) open(w http.ResponseWriter, r *http.Request) {
+	var req openRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	kind, err := ledger.ParseAccountKind(req.AccountType)
+	if err != nil {
+		httpx.Fail(w, r, httpx.Invalid(map[string]string{
+			"account_type": "El tipo de cuenta debe ser savings, checking o investment.",
+		}))
+		return
+	}
+
+	account, err := h.svc.OpenFor(r.Context(), identity.MustFromContext(r.Context()), kind)
+	if err != nil {
+		httpx.Fail(w, r, TranslateError(err))
+		return
+	}
+
+	httpx.JSON(w, r, http.StatusCreated, NewView(account))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +118,11 @@ func TranslateError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrNotOwned):
 		return httpx.NotFound("account_not_found", "La cuenta no existe.").WithCause(err)
+	case errors.Is(err, ErrTooManyAccounts):
+		return httpx.Conflict(
+			"too_many_accounts",
+			"Ya tienes el máximo de cuentas que puedes abrir.",
+		).WithCause(err)
 	case errors.Is(err, ErrNumberUnavailable):
 		return httpx.Internal(err)
 	default:
@@ -94,6 +131,10 @@ func TranslateError(err error) error {
 }
 
 // --- response shapes --------------------------------------------------------
+
+type openRequest struct {
+	AccountType string `json:"account_type"`
+}
 
 type accountListResponse struct {
 	Accounts []View       `json:"accounts"`

@@ -96,3 +96,22 @@ export function useClearChat() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.chat }),
   })
 }
+
+/**
+ * Opens an account.
+ *
+ * Invalidates everything that lists accounts or totals them. A new account is empty, so
+ * no balance changes — but every account picker in the application is now missing an
+ * option, which is the same kind of wrong.
+ */
+export function useOpenAccount() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: api.openAccount,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.me })
+      void queryClient.invalidateQueries({ queryKey: keys.dashboard })
+    },
+  })
+}

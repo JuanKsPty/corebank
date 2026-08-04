@@ -1,5 +1,7 @@
 import { newIdempotencyKey, request } from './client'
 import type {
+  Account,
+  AccountType,
   ChatHistory,
   Dashboard,
   Me,
@@ -78,6 +80,19 @@ export interface HistoryQuery {
   search?: string
   limit?: number
   cursor?: string
+}
+
+/**
+ * Opens an additional account for the signed-in customer.
+ *
+ * The owner is never sent: the server takes it from the session. A body carrying a user
+ * id would be one forged field away from opening an account in somebody else's name.
+ */
+export function openAccount(accountType: AccountType) {
+  return request<Account>('/api/accounts', {
+    method: 'POST',
+    body: { account_type: accountType },
+  })
 }
 
 export function fetchHistory(query: HistoryQuery = {}) {
