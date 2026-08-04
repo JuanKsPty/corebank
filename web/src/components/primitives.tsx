@@ -76,7 +76,27 @@ export function Figure({
  * So the bar is drawn as a single rule divided into what you can spend and what is
  * on hold — and the held segment grows in when it appears, because that is the
  * moment the assistant reserved money and the customer needs to see it happen.
+ *
+ * The held segment has a floor, and it needs one. A hold is usually a small fraction
+ * of a balance: reserving $250 against this dataset's largest account, $85,047, is
+ * 0.294%, which on a 576px bar is 1.7px — the element that exists to make a
+ * reservation visible would render it as a speck indistinguishable from a rendering
+ * artefact, and widening the bar makes that worse rather than better because the
+ * fraction does not change. So below the width at which a segment can be read as a
+ * proportion at all, the segment stops claiming to be one: it is floored at 10px and
+ * a rule is drawn at the boundary, which reads as a mark rather than as a
+ * measurement. The exact figures are stated underneath either way, and they are what
+ * the customer acts on.
  */
+
+/**
+ * The narrowest held segment that reads as a deliberate part of the bar.
+ *
+ * Below roughly this width the eye takes a 6px-tall sliver for an artefact, and a
+ * proportion that cannot be perceived is not communicating a proportion.
+ */
+const HELD_FLOOR_PX = 10
+
 export function BalanceComposition({
   posted,
   held,
@@ -105,8 +125,12 @@ export function BalanceComposition({
           <div
             className="bg-hold"
             style={{
-              width: `${heldShare}%`,
-              minWidth: '3px',
+              // max() rather than minWidth so the floor participates in the flex
+              // sizing instead of fighting it.
+              width: `max(${heldShare}%, ${HELD_FLOOR_PX}px)`,
+              // The boundary rule. At the floor this is most of what is seen, and it
+              // is what makes a small reservation register at all.
+              boxShadow: 'inset 1px 0 0 var(--color-paper-raised)',
               transformOrigin: 'right',
               animation: 'hold-grow 420ms var(--ease-out-soft)',
             }}
