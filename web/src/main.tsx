@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 
 import { App } from './App'
 import { ApiError } from './api/client'
+import { TooltipProvider } from './components/ui/tooltip'
 import { SessionProvider } from './lib/session'
 import './styles.css'
 
@@ -39,7 +40,13 @@ createRoot(root).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <SessionProvider>
-          <App />
+          {/* Required by every shadcn component that can carry a tooltip — the
+              collapsed navigation rail labels each icon with one. A short delay,
+              because a rail is somewhere a pointer passes through on its way
+              elsewhere and a tooltip that fires instantly is noise. */}
+          <TooltipProvider delayDuration={300}>
+            <App />
+          </TooltipProvider>
         </SessionProvider>
       </BrowserRouter>
     </QueryClientProvider>

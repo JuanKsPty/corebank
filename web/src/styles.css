@@ -1,4 +1,14 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+/* The `dark` variant is bound to a `.dark` ancestor rather than left on Tailwind's
+   default of `prefers-color-scheme`. There is no dark theme here — the palette is
+   paper and ink — and no element ever carries `.dark`, so this deliberately
+   neutralises every `dark:` utility that ships inside a shadcn component. Removing
+   this line would let those utilities fire for anyone whose OS is in dark mode and
+   repaint them against a light palette. */
+@custom-variant dark (&:is(.dark *));
 
 /* ===========================================================================
    Typefaces, served from the app itself.
@@ -85,12 +95,26 @@
   --color-ink-soft: #3d5f59;
   --color-ink-faint: #7e938f;
 
+  /* The one place the interface does use alarm colour: a rejected movement, an
+     invalid field. Tokenised here because it was previously the same three hex
+     values copied across five files, which is how a palette drifts. */
+  --color-danger: #a4342a;
+  --color-danger-text: #8f2d24;
+  /* A darkened `hold`, for text that has to meet contrast on a pale amber band. */
+  --color-hold-text: #8a6516;
+
   --font-sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
   --radius-card: 6px;
 
   --ease-out-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* Tailwind's scale stops at 2xl (1536px), which left every viewport from a
+     laptop to a 27-inch display being treated identically. A statement is a wide
+     document and the people who read one all day are on the big screens, so the
+     ladder gets one more rung. */
+  --breakpoint-3xl: 120rem;
 }
 
 @layer base {
@@ -98,6 +122,11 @@
     /* Only where an amount is involved do figures need to line up; setting it
        globally means a table cannot accidentally opt out. */
     font-variant-numeric: tabular-nums;
+    /* shadcn's default border colour. Its companion `outline-ring/50` is
+       deliberately NOT applied: the focus ring below is a solid copper outline with
+       an offset, and letting a half-transparent ring win over it would make the
+       keyboard path harder to see on a banking form. */
+    @apply border-border;
   }
 
   html {
@@ -137,6 +166,9 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }
 
@@ -277,37 +309,17 @@
 
   /* --- the ledger table -------------------------------------------------- */
 
-  /* A statement is ruled like the paper ledger it descends from, with the debit
-     and credit columns separated by a real rule. The structure says something
-     true: every movement has two sides, and only one of them is yours.  */
-  .ledger {
-    width: 100%;
-    border-collapse: collapse;
-  }
+  /* Reduced, deliberately, to the two rules that are the product's identity.
+     Everything that used to live here — cell padding, alignment, row borders,
+     the hover — now comes from utilities on the shadcn Table primitives, because
+     Tailwind's utility layer outranks this component layer and having both
+     declare padding meant the winner depended on which file you were reading.
+     What stays is what no generic table component can express: a statement is
+     ruled like the paper ledger it descends from, and the debit and credit sides
+     are divided by a real rule. Every movement has two sides, and only one of
+     them is yours. */
   .ledger thead th {
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    font-weight: 500;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-ink-faint);
-    text-align: left;
-    padding: 0 0.75rem 0.5rem;
     border-bottom: 1px solid var(--color-ink);
-  }
-  .ledger tbody td {
-    padding: 0.7rem 0.75rem;
-    border-bottom: 1px solid var(--color-rule);
-    vertical-align: baseline;
-  }
-  .ledger tbody tr:last-child td {
-    border-bottom: none;
-  }
-  .ledger tbody tr {
-    transition: background-color 100ms var(--ease-out-soft);
-  }
-  .ledger tbody tr:hover {
-    background-color: var(--color-paper-sunken);
   }
   /* The rule that divides the two sides of the account. */
   .ledger .col-debit {
@@ -344,4 +356,115 @@
   to {
     transform: scaleX(1);
   }
+}
+
+/* ===========================================================================
+   The shadcn layer.
+   ---------------------------------------------------------------------------
+   Everything below is what `shadcn init` generates, with two deliberate
+   departures from its defaults.
+
+   First, its `--font-sans: 'Geist Variable'` is removed. This block is emitted
+   after the `@theme` above, so leaving it would have silently replaced Archivo
+   with Geist everywhere — and the width axis of Archivo is what sets the display
+   type here. `--font-heading` stays and resolves to Archivo, because custom
+   properties are resolved where they are used, not where they are written.
+
+   Second, its neutral OKLCH palette is replaced by a bridge to the tokens above.
+   Tailwind v4 merges `@theme` blocks additively and none of these names collide
+   with `--color-*`, so the two systems coexist: shadcn components read
+   `--primary`/`--border`/`--muted`, those point at copper/rule/sunken, and every
+   component adopts this palette without a single edit to its own file.
+   =========================================================================== */
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+
+/* The bridge. Each shadcn token points at a corebank one, so `bg-primary`
+   inside a shadcn Button paints copper and `border-border` paints the ruling
+   colour, with no edit to any component file. */
+:root {
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+  --card: var(--color-paper-raised);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-paper-raised);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-copper);
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-paper-sunken);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-paper-sunken);
+  --muted-foreground: var(--color-ink-faint);
+  --accent: var(--color-paper-sunken);
+  --accent-foreground: var(--color-ink);
+  --destructive: var(--color-danger);
+  --border: var(--color-rule);
+  --input: var(--color-rule);
+  --ring: var(--color-copper);
+
+  /* Matches --radius-card, so the `rounded-*` scale shadcn derives from this
+     lands on the 4-6px the hand-written controls already used and nothing jumps. */
+  --radius: 6px;
+
+  /* The rail is the one dark surface in the interface, inheriting the role the
+     top band used to play: the ink reads as the product's mark, not as a theme.
+     Its accents are mixed from paper so they stay in the same family instead of
+     introducing a grey. */
+  --sidebar: var(--color-ink);
+  --sidebar-foreground: var(--color-paper);
+  --sidebar-primary: var(--color-copper);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: color-mix(in oklab, var(--color-paper) 12%, transparent);
+  --sidebar-accent-foreground: var(--color-paper);
+  --sidebar-border: color-mix(in oklab, var(--color-paper) 14%, transparent);
+  --sidebar-ring: var(--color-copper);
+
+  /* Ordered so the first series a chart reaches for is the one that means money
+     coming in. */
+  --chart-1: var(--color-credit);
+  --chart-2: var(--color-copper);
+  --chart-3: var(--color-hold);
+  --chart-4: var(--color-ink-soft);
+  --chart-5: var(--color-ink-faint);
 }
