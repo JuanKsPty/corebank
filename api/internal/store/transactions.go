@@ -347,7 +347,62 @@ type FlowPoint struct {
 	Out money.Cents
 }
 
-// DailyFlow aggregates completed movements per day over the given window.
+// Flow is a daily series together with the window it actually covers.
+type Flow struct {
+	Points []FlowPoint
+	From   time.Time
+	To     time.Time
+	// Recent is false when the window had to be moved back to where the customer's
+	// activity is, so the interface can label the period instead of implying the
+	// last thirty days.
+	Recent bool
+}
+
+// DailyFlowWindow aggregates the last `days` of activity, falling back to the last
+// `days` in which there *was* any.
+//
+// The plain "since today minus thirty days" query is the right one for an account in
+// use, and returns nothing for one whose history ends earlier — an empty chart that
+// reads as broken rather than as accurate. So when the recent window is empty, the
+// window moves to end at the customer's most recent movement, and the caller is told
+// which window it got.
+func (q *Queries) DailyFlowWindow(ctx context.Context, accounts []string, days int, now time.Time) (Flow, error) {
+	if days <= 0 || days > 365 {
+		days = 30
+	}
+	span := time.Duration(days) * 24 * time.Hour
+
+	from := now.Add(-span).Truncate(24 * time.Hour)
+	points, err := q.DailyFlow(ctx, accounts, from)
+	if err != nil {
+		return Flow{}, err
+	}
+	if len(points) > 0 {
+		return Flow{Points: points, From: from, To: now, Recent: true}, nil
+	}
+
+	const latestQuery = `
+		SELECT max(occurred_at) FROM transactions
+		WHERE (from_account = ANY($1) OR to_account = ANY($1)) AND status = 'completed'`
+
+	var latest *time.Time
+	if err := q.q.QueryRow(ctx, latestQuery, accounts).Scan(&latest); err != nil {
+		return Flow{}, wrap("store.DailyFlowWindow", err)
+	}
+	if latest == nil {
+		// No completed movements at all. An empty series here is the truth.
+		return Flow{From: from, To: now, Recent: true}, nil
+	}
+
+	from = latest.Add(-span).Truncate(24 * time.Hour)
+	points, err = q.DailyFlowUntil(ctx, accounts, from, *latest)
+	if err != nil {
+		return Flow{}, err
+	}
+	return Flow{Points: points, From: from, To: *latest, Recent: false}, nil
+}
+
+// DailyFlow aggregates completed movements per day from `since` onwards.
 //
 // Aggregated in SQL rather than by loading rows and summing in Go: the seeded
 // history is thousands of movements per account, and a chart needs a few dozen
@@ -370,6 +425,32 @@ func (q *Queries) DailyFlow(ctx context.Context, accounts []string, since time.T
 	}
 	defer rows.Close()
 
+	return scanFlow(rows)
+}
+
+// DailyFlowUntil is DailyFlow bounded at both ends.
+func (q *Queries) DailyFlowUntil(ctx context.Context, accounts []string, since, until time.Time) ([]FlowPoint, error) {
+	const query = `
+		SELECT date_trunc('day', occurred_at) AS day,
+		       coalesce(sum(amount_cents) FILTER (WHERE to_account = ANY($1)), 0)   AS inflow,
+		       coalesce(sum(amount_cents) FILTER (WHERE from_account = ANY($1)), 0) AS outflow
+		FROM transactions
+		WHERE (from_account = ANY($1) OR to_account = ANY($1))
+		  AND status = 'completed'
+		  AND occurred_at >= $2 AND occurred_at <= $3
+		GROUP BY day
+		ORDER BY day`
+
+	rows, err := q.q.Query(ctx, query, accounts, since, until)
+	if err != nil {
+		return nil, wrap("store.DailyFlowUntil", err)
+	}
+	defer rows.Close()
+
+	return scanFlow(rows)
+}
+
+func scanFlow(rows pgx.Rows) ([]FlowPoint, error) {
 	var points []FlowPoint
 	for rows.Next() {
 		var (
@@ -382,7 +463,7 @@ func (q *Queries) DailyFlow(ctx context.Context, accounts []string, since time.T
 		p.In, p.Out = money.Cents(in), money.Cents(outQ)
 		points = append(points, p)
 	}
-	return points, wrap("store.DailyFlow", rows.Err())
+	return points, wrap("store.scanFlow", rows.Err())
 }
 
 // --- idempotency ------------------------------------------------------------

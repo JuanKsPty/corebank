@@ -91,10 +91,21 @@ type dashboardResponse struct {
 	Accounts       []accounts.View `json:"accounts"`
 	TotalAvailable money.Amount    `json:"total_available"`
 	Recent         []View          `json:"recent"`
-	Flow           []flowPoint     `json:"flow"`
+	Flow           flowResponse    `json:"flow"`
 	// Pending are confirmations still awaiting an answer, so a reload restores
 	// the cards instead of leaving held funds unexplained.
 	Pending []View `json:"pending_confirmations"`
+}
+
+// flowResponse carries the series together with the period it covers, so the
+// interface can label the chart accurately instead of asserting "last 30 days".
+type flowResponse struct {
+	Points []flowPoint `json:"points"`
+	From   time.Time   `json:"from"`
+	To     time.Time   `json:"to"`
+	// Recent is false when the window had to move back to the customer's most
+	// recent activity.
+	Recent bool `json:"recent"`
 }
 
 type flowPoint struct {
@@ -103,10 +114,10 @@ type flowPoint struct {
 	Out money.Amount `json:"out"`
 }
 
-func newFlowPoints(points []store.FlowPoint) []flowPoint {
-	out := make([]flowPoint, 0, len(points))
-	for _, p := range points {
-		out = append(out, flowPoint{Day: p.Day, In: p.In.Amount(), Out: p.Out.Amount()})
+func newFlow(flow store.Flow) flowResponse {
+	points := make([]flowPoint, 0, len(flow.Points))
+	for _, p := range flow.Points {
+		points = append(points, flowPoint{Day: p.Day, In: p.In.Amount(), Out: p.Out.Amount()})
 	}
-	return out
+	return flowResponse{Points: points, From: flow.From, To: flow.To, Recent: flow.Recent}
 }

@@ -72,6 +72,35 @@ func (c Cents) Amount() Amount {
 	return Amount{Cents: int64(c), Formatted: c.String(), Currency: CurrencyUSD}
 }
 
+// Display formats an amount the way a person writes it: "27,882.74".
+//
+// Distinct from String, which is the exact wire form and must never gain
+// separators — a grouped value would not survive a round trip through Parse. This
+// one is for prose the customer reads, such as the assistant's replies.
+func (c Cents) Display() string {
+	exact := c.String()
+
+	negative := strings.HasPrefix(exact, "-")
+	exact = strings.TrimPrefix(exact, "-")
+
+	whole, fraction, _ := strings.Cut(exact, ".")
+
+	var grouped strings.Builder
+	if negative {
+		grouped.WriteByte('-')
+	}
+	for i, digit := range whole {
+		if i > 0 && (len(whole)-i)%3 == 0 {
+			grouped.WriteByte(',')
+		}
+		grouped.WriteRune(digit)
+	}
+	grouped.WriteByte('.')
+	grouped.WriteString(fraction)
+
+	return grouped.String()
+}
+
 // CheckCurrency rejects anything but USD, so an amount labelled in another
 // currency is refused at the edge rather than quietly treated as dollars.
 func CheckCurrency(code string) error {

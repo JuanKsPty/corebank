@@ -72,7 +72,7 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Accounts:       accounts.NewViews(summary.Accounts),
 		TotalAvailable: summary.TotalAvailable.Amount(),
 		Recent:         newViews(summary.Recent),
-		Flow:           newFlowPoints(summary.Flow),
+		Flow:           newFlow(summary.Flow),
 		Pending:        newViews(summary.Pending),
 	})
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -41,21 +40,21 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, q HistoryQuery)
 	return s.db.Q().History(ctx, filter)
 }
 
-// Flow returns daily money in and out over the last days, for the dashboard.
-func (s *Service) Flow(ctx context.Context, userID uuid.UUID, days int) ([]store.FlowPoint, error) {
+// Flow returns daily money in and out for the dashboard chart.
+//
+// The window follows the data. For an account in use it is the last `days`; for one
+// whose history ends earlier — as the imported dataset's does — it moves back to
+// where the activity is, and says so, rather than returning an empty series that
+// would read as a broken chart.
+func (s *Service) Flow(ctx context.Context, userID uuid.UUID, days int) (store.Flow, error) {
 	scope, err := s.scope(ctx, userID, "")
 	if err != nil {
-		return nil, err
+		return store.Flow{}, err
 	}
 	if len(scope) == 0 {
-		return nil, nil
+		return store.Flow{}, nil
 	}
-	if days <= 0 || days > 365 {
-		days = 30
-	}
-
-	since := s.now().UTC().AddDate(0, 0, -days).Truncate(24 * time.Hour)
-	return s.db.Q().DailyFlow(ctx, scope, since)
+	return s.db.Q().DailyFlowWindow(ctx, scope, days, s.now().UTC())
 }
 
 // PendingConfirmations lists the customer's movements still holding funds.
@@ -91,7 +90,7 @@ type Summary struct {
 	Accounts       []accounts.Account
 	TotalAvailable money.Cents
 	Recent         []store.Transaction
-	Flow           []store.FlowPoint
+	Flow           store.Flow
 	Pending        []store.Transaction
 }
 

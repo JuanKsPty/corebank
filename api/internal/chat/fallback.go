@@ -11,6 +11,7 @@ import (
 
 	"github.com/JuanKsPty/corebank/api/internal/llm"
 	"github.com/JuanKsPty/corebank/api/internal/mcpserver"
+	"github.com/JuanKsPty/corebank/api/internal/money"
 )
 
 // Fallback answers without a language model.
@@ -348,6 +349,16 @@ func (f *Fallback) describe(messages []llm.Message) string {
 }
 
 // renderResult turns one tool's JSON into Spanish.
+// grouped renders a tool's decimal amount the way a person writes it. The tools
+// return the exact wire form ("27882.74"); prose needs "27,882.74".
+func grouped(amount string) string {
+	cents, err := money.Parse(amount)
+	if err != nil {
+		return amount
+	}
+	return cents.Display()
+}
+
 func renderResult(tool, content string) string {
 	switch tool {
 	case mcpserver.ToolListAccounts:
@@ -363,11 +374,11 @@ func renderResult(tool, content string) string {
 		if json.Unmarshal([]byte(content), &out) != nil || len(out.Accounts) == 0 {
 			return "No tienes cuentas abiertas."
 		}
-		lines := []string{fmt.Sprintf("Tienes $%s disponibles en total:", out.TotalAvailable)}
+		lines := []string{fmt.Sprintf("Tienes $%s disponibles en total:", grouped(out.TotalAvailable))}
 		for _, a := range out.Accounts {
-			line := fmt.Sprintf("• %s (%s): $%s", a.AccountNumber, spanishKind(a.AccountType), a.Available)
+			line := fmt.Sprintf("• %s (%s): $%s", a.AccountNumber, spanishKind(a.AccountType), grouped(a.Available))
 			if a.Held != "0.00" && a.Held != "" {
-				line += fmt.Sprintf(" — $%s retenidos por una operación sin confirmar", a.Held)
+				line += fmt.Sprintf(" — $%s retenidos por una operación sin confirmar", grouped(a.Held))
 			}
 			lines = append(lines, line)
 		}
@@ -382,9 +393,9 @@ func renderResult(tool, content string) string {
 		if json.Unmarshal([]byte(content), &out) != nil {
 			return "No he podido leer el saldo."
 		}
-		text := fmt.Sprintf("La cuenta %s tiene $%s disponibles.", out.AccountNumber, out.Available)
+		text := fmt.Sprintf("La cuenta %s tiene $%s disponibles.", out.AccountNumber, grouped(out.Available))
 		if out.Held != "0.00" && out.Held != "" {
-			text += fmt.Sprintf(" Hay $%s retenidos por una operación sin confirmar.", out.Held)
+			text += fmt.Sprintf(" Hay $%s retenidos por una operación sin confirmar.", grouped(out.Held))
 		}
 		return text
 
@@ -407,7 +418,7 @@ func renderResult(tool, content string) string {
 				date = date[:10]
 			}
 			lines = append(lines, fmt.Sprintf("• %s — %s de $%s: %s",
-				date, spanishMovement(t.Kind), t.Amount, t.Description))
+				date, spanishMovement(t.Kind), grouped(t.Amount), t.Description))
 		}
 		return strings.Join(lines, "\n")
 
@@ -420,9 +431,9 @@ func renderResult(tool, content string) string {
 		if json.Unmarshal([]byte(content), &out) != nil {
 			return "El ingreso se ha realizado."
 		}
-		text := fmt.Sprintf("He ingresado $%s en la cuenta %s.", out.Amount, out.AccountNumber)
+		text := fmt.Sprintf("He ingresado $%s en la cuenta %s.", grouped(out.Amount), out.AccountNumber)
 		if out.NewBalance != "" {
-			text += fmt.Sprintf(" Su saldo disponible es ahora $%s.", out.NewBalance)
+			text += fmt.Sprintf(" Su saldo disponible es ahora $%s.", grouped(out.NewBalance))
 		}
 		return text
 
@@ -438,13 +449,13 @@ func renderResult(tool, content string) string {
 		}
 		var text string
 		if tool == mcpserver.ToolPrepareWithdrawal {
-			text = fmt.Sprintf("He preparado un retiro de $%s de la cuenta %s.", out.Amount, out.FromAccount)
+			text = fmt.Sprintf("He preparado un retiro de $%s de la cuenta %s.", grouped(out.Amount), out.FromAccount)
 		} else {
 			text = fmt.Sprintf("He preparado una transferencia de $%s de %s a %s.",
-				out.Amount, out.FromAccount, out.ToAccount)
+				grouped(out.Amount), out.FromAccount, out.ToAccount)
 		}
 		if out.BalanceIfConfirmed != "" {
-			text += fmt.Sprintf(" Si la confirmas te quedarán $%s disponibles.", out.BalanceIfConfirmed)
+			text += fmt.Sprintf(" Si la confirmas te quedarán $%s disponibles.", grouped(out.BalanceIfConfirmed))
 		}
 		// Stated explicitly, because this is the one thing the customer must not
 		// misread.
