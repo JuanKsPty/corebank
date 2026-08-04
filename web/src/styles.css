@@ -1,0 +1,347 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   Typefaces, served from the app itself.
+   ---------------------------------------------------------------------------
+   Self-hosted rather than loaded from a font CDN, because the whole stack has to
+   come up from a clean clone with `docker compose up` — including on a machine
+   with no internet, where a CDN would silently drop the design to system fonts.
+   225 KB for both families, subset to latin and latin-ext.
+
+   Archivo is variable on two axes and both are used: the width axis carries the
+   display hierarchy, so large amounts are set expanded — the proportions of
+   engraved banknote lettering — while body text stays at normal width.
+   =========================================================================== */
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Spline Sans Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/spline-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Spline Sans Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/spline-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ===========================================================================
+   Tokens.
+   ---------------------------------------------------------------------------
+   The palette comes from ledger paper and ink rather than from fintech
+   convention: a deep teal-black for chrome and headings, warm paper for
+   surfaces, and a ruling colour that draws the column rules a paper ledger has.
+
+   Two semantic colours carry meaning nothing else may use. `hold` is reserved
+   funds — money that has left the available balance but not arrived anywhere,
+   which is a state this ledger has and most banking interfaces cannot express.
+   `credit` is money coming in. An outflow is deliberately NOT red: on your own
+   statement, spending is not an error.
+   =========================================================================== */
+
+@theme {
+  --color-ink: #0e2a26;
+  --color-paper: #fbf9f5;
+  --color-rule: #dad5c9;
+  --color-copper: #a8531f;
+  --color-hold: #b98a1f;
+  --color-credit: #2c6a5b;
+
+  /* Surfaces derived from the two grounds, so everything stays in one family. */
+  --color-paper-raised: #ffffff;
+  --color-paper-sunken: #f4f1ea;
+  --color-ink-soft: #3d5f59;
+  --color-ink-faint: #7e938f;
+
+  --font-sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-card: 6px;
+
+  --ease-out-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@layer base {
+  * {
+    /* Only where an amount is involved do figures need to line up; setting it
+       globally means a table cannot accidentally opt out. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Focus is visible everywhere and never removed. A banking form is exactly
+     where somebody navigates by keyboard. */
+  :focus-visible {
+    outline: 2px solid var(--color-copper);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-copper) 22%, transparent);
+  }
+
+  /* Every transition in the interface respects this. Nothing here is decorative
+     enough to be worth overriding somebody's stated preference. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* --- type roles --------------------------------------------------------- */
+
+  /* Display: the width axis is what makes this distinct from a heading in any
+     other sans. Used on the greeting and the headline balance only. */
+  .type-display {
+    font-family: var(--font-sans);
+    font-stretch: 116%;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+
+  /* The eyebrow above a section. Its job is to name the section quietly, so it
+     is small, spaced and in the faint ink — never competing with the content. */
+  .type-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
+
+  /* Figures: account numbers, dates, and every amount. */
+  .type-figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* --- surfaces ---------------------------------------------------------- */
+
+  .card {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-card);
+  }
+
+  /* --- controls ---------------------------------------------------------- */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    transition:
+      background-color 140ms var(--ease-out-soft),
+      border-color 140ms var(--ease-out-soft),
+      color 140ms var(--ease-out-soft);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .btn-primary {
+    background-color: var(--color-copper);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-copper) 88%, black);
+  }
+
+  .btn-secondary {
+    background-color: transparent;
+    border-color: var(--color-rule);
+    color: var(--color-ink);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-paper-sunken);
+    border-color: var(--color-ink-faint);
+  }
+
+  .btn-ink {
+    background-color: var(--color-ink);
+    color: var(--color-paper);
+  }
+  .btn-ink:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-ink) 88%, black);
+  }
+
+  .field-label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-ink-soft);
+    margin-bottom: 0.3rem;
+  }
+
+  .field-input {
+    display: block;
+    width: 100%;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: 4px;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.9375rem;
+    color: var(--color-ink);
+    transition:
+      border-color 140ms var(--ease-out-soft),
+      box-shadow 140ms var(--ease-out-soft);
+  }
+  .field-input::placeholder {
+    color: var(--color-ink-faint);
+  }
+  .field-input:hover:not(:disabled) {
+    border-color: var(--color-ink-faint);
+  }
+  .field-input:disabled {
+    background-color: var(--color-paper-sunken);
+    cursor: not-allowed;
+  }
+  /* An invalid field is marked by colour AND by the message beneath it, never by
+     colour alone. */
+  .field-input[aria-invalid='true'] {
+    border-color: #a4342a;
+    box-shadow: inset 2px 0 0 #a4342a;
+  }
+
+  .field-error {
+    display: flex;
+    gap: 0.35rem;
+    margin-top: 0.3rem;
+    font-size: 0.8125rem;
+    color: #8f2d24;
+  }
+
+  /* --- the ledger table -------------------------------------------------- */
+
+  /* A statement is ruled like the paper ledger it descends from, with the debit
+     and credit columns separated by a real rule. The structure says something
+     true: every movement has two sides, and only one of them is yours.  */
+  .ledger {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .ledger thead th {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    text-align: left;
+    padding: 0 0.75rem 0.5rem;
+    border-bottom: 1px solid var(--color-ink);
+  }
+  .ledger tbody td {
+    padding: 0.7rem 0.75rem;
+    border-bottom: 1px solid var(--color-rule);
+    vertical-align: baseline;
+  }
+  .ledger tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .ledger tbody tr {
+    transition: background-color 100ms var(--ease-out-soft);
+  }
+  .ledger tbody tr:hover {
+    background-color: var(--color-paper-sunken);
+  }
+  /* The rule that divides the two sides of the account. */
+  .ledger .col-debit {
+    border-left: 1px solid var(--color-rule);
+  }
+
+  /* --- skeletons --------------------------------------------------------- */
+
+  .skeleton {
+    background-color: var(--color-paper-sunken);
+    border-radius: 3px;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* The signature moment: the held segment of the balance bar growing in when the
+   assistant reserves funds. It is the only thing on the page that animates on
+   its own, because it is the only thing that changes without the customer
+   touching it. */
+@keyframes hold-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}

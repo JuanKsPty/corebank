@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#0E2A26"/>
+  <!-- The T-account: two sides, one rule between them. -->
+  <path d="M7 10h18M16 10v14" stroke="#FBF9F5" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M9 17h4M19 17h4" stroke="#A8531F" stroke-width="2.2" stroke-linecap="round"/>
+</svg>
