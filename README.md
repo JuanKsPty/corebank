@@ -370,6 +370,7 @@ Errores en un formato único: `{"error":{"code":"…","message":"…","fields":{
 | `GET` | `/api/accounts/{number}/balance` | Saldo puntual. |
 | `GET` | `/api/accounts/{number}/transactions` | Historial de la cuenta, paginado por cursor. |
 | `GET` | `/api/transactions` | Historial consolidado, con filtros y paginación por cursor. |
+| `GET` | `/api/transactions/export.csv` | Los mismos filtros, como archivo. Sin paginar: un extracto es un documento. |
 | `POST` | `/api/transactions/deposit` | Acepta `Idempotency-Key`. |
 | `POST` | `/api/transactions/withdraw` | Acepta `Idempotency-Key`. |
 | `POST` | `/api/transactions/transfer` | Acepta `Idempotency-Key`. Valida la cuenta destino. |
@@ -382,6 +383,28 @@ Errores en un formato único: `{"error":{"code":"…","message":"…","fields":{
 Confirmar y cancelar viven bajo `/api/transactions` y no bajo `/api/chat` a
 propósito: son operaciones bancarias, no de conversación, y funcionan igual venga la
 propuesta del chat o de cualquier otro sitio.
+
+### El extracto en CSV
+
+`export.csv` toma **los mismos filtros** que el historial y los aplica igual, así que
+el archivo describe exactamente lo que había en pantalla al pulsar el botón. Lo único
+que ignora es el cursor: un extracto es un documento, no una página de uno, así que
+recorre las páginas por dentro y las escribe como un solo archivo, **en streaming**
+—el coste en memoria no lo fija el cliente con más movimientos del banco.
+
+Tres detalles que deciden si el archivo sirve:
+
+- **Lleva BOM de UTF-8.** Excel lee un CSV con la codificación heredada del sistema si
+  no lo encuentra, y convierte cada «Depósito» en galimatías. Todo lo que no es Excel
+  lo ignora.
+- **Los montos van con punto y dos decimales**, la misma forma que devuelve la API.
+  Un «1.234,56» localizado se leería mejor y dejaría de ser un dato que se pueda
+  volver a parsear.
+- **Las fechas en RFC 3339 y en UTC**, para que la columna signifique lo mismo la abra
+  quien la abra y el archivo no se lleve la zona horaria del servidor.
+
+Una descripción con comas, comillas o saltos de línea no descuadra las columnas: hay
+un test que escribe esas cuatro y vuelve a leer el archivo para comprobarlo.
 
 ### Un cliente no puede ver la cuenta de otro
 

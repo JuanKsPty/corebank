@@ -1,7 +1,10 @@
 import { useState } from 'react'
-import { ListFilterIcon, SearchIcon } from 'lucide-react'
+import { DownloadIcon, ListFilterIcon, SearchIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { ApiError } from '@/api/client'
+import * as api from '@/api/endpoints'
+import type { HistoryQuery } from '@/api/endpoints'
 import type { Account, MovementKind } from '@/api/types'
 import { DateField } from '@/components/DateField'
 import { MovementList } from '@/components/MovementList'
@@ -25,6 +28,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { accountLabel } from '@/lib/format'
 import { useHistory, useMe } from '@/lib/queries'
+import { downloadBlob } from '@/lib/utils'
 
 const KINDS: Array<{ value: MovementKind | ''; label: string }> = [
   { value: '', label: 'Todos' },
@@ -156,6 +160,11 @@ export function HistoryPage() {
             onSubmit={() => setTrail([])}
             className="min-w-0 flex-1 md:w-64 md:flex-none"
           />
+
+          {/* Downloads what is on screen, filters and all — not the whole history.
+              A button that ignored the filters would be a different feature wearing
+              this one's label. */}
+          <ExportButton query={query} filtered={filtered} />
 
           <Button asChild variant="outline" className="hidden shrink-0 md:inline-flex">
             <Link to="/mover">Mover dinero</Link>
@@ -359,5 +368,60 @@ function SearchBox({
         </InputGroupAddon>
       </InputGroup>
     </form>
+  )
+}
+
+/**
+ * Downloads the filtered history as a CSV file.
+ *
+ * The whole point is that it exports what the screen is showing. Somebody who filtered
+ * to one account and one month wants that month, and a button that quietly handed them
+ * everything would be worse than no button — they would not notice until the numbers
+ * failed to add up somewhere else.
+ *
+ * The failure is shown next to the button rather than as a toast. A download that does
+ * nothing is indistinguishable from a browser being slow, so silence here reads as a
+ * broken feature.
+ */
+function ExportButton({ query, filtered }: { query: HistoryQuery; filtered: boolean }) {
+  const [working, setWorking] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  async function download() {
+    setWorking(true)
+    setFailure(null)
+    try {
+      const { blob, filename } = await api.exportHistoryCSV(query)
+      downloadBlob(blob, filename ?? 'corebank-movimientos.csv')
+    } catch (error) {
+      setFailure(
+        error instanceof ApiError ? error.message : 'No pudimos preparar la descarga.',
+      )
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  return (
+    <div className="relative shrink-0">
+      <Button
+        variant="outline"
+        onClick={() => void download()}
+        disabled={working}
+        title={filtered ? 'Descarga los movimientos que estás viendo' : undefined}
+      >
+        {working ? <Spinner /> : <DownloadIcon aria-hidden="true" />}
+        <span className="hidden sm:inline">{working ? 'Preparando' : 'CSV'}</span>
+        <span className="sr-only sm:hidden">Descargar CSV</span>
+      </Button>
+      {failure && (
+        <p
+          role="alert"
+          className="absolute top-full right-0 z-10 mt-1 w-56 rounded-[5px] border border-danger/40 bg-paper-raised px-2.5 py-1.5 text-[0.75rem] text-danger-text shadow-sm"
+        >
+          {failure}
+        </p>
+      )}
+    </div>
   )
 }
