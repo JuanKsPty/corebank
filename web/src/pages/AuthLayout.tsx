@@ -62,23 +62,32 @@ export function AuthLayout({
  * 2 MB JSON file before they can look at anything is being made to work for no reason.
  * The button says exactly what it does.
  */
+/**
+ * The seeded customers, exported so the landing page can send somebody straight in
+ * without a second copy of the credentials drifting out of step with this one.
+ *
+ * The first is the default for one-click entry: one account, so the first screen after
+ * signing in is the simple version of the product.
+ */
+export const DEMO_ACCOUNTS = [
+  {
+    email: 'ihernandez@email.com',
+    password: 'Isabel2024!',
+    note: '1 cuenta · $32,354.53',
+  },
+  {
+    email: 'andres.perez368@mail.com',
+    password: 'Andrés2024!',
+    note: '3 cuentas · $86,047.62',
+  },
+]
+
 export function DemoCredentials({
   onUse,
 }: {
   onUse: (email: string, password: string) => void
 }) {
-  const accounts = [
-    {
-      email: 'ihernandez@email.com',
-      password: 'Isabel2024!',
-      note: '1 cuenta · $32,354.53',
-    },
-    {
-      email: 'andres.perez368@mail.com',
-      password: 'Andrés2024!',
-      note: '3 cuentas · $86,047.62',
-    },
-  ]
+  const accounts = DEMO_ACCOUNTS
 
   return (
     <div className="rounded-[5px] border border-rule bg-paper-sunken p-3.5">

@@ -15,11 +15,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { accountTypeLabel, formatDate } from '@/lib/format'
+import { accountLabel, accountTypeAside, formatDate } from '@/lib/format'
 import { useMe, useOpenAccount } from '@/lib/queries'
 import { cn } from '@/lib/utils'
+import { MAX_ALIAS } from '@/lib/validate'
 
 const TYPES: Array<{ value: AccountType; label: string; blurb: string }> = [
   { value: 'savings', label: 'Ahorros', blurb: 'Para guardar' },
@@ -79,11 +81,14 @@ export function AccountsPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-[0.9375rem] font-medium">
-                        {accountTypeLabel(account.account_type)}
+                      <p className="truncate text-[0.9375rem] font-medium">
+                        {accountLabel(account)}
                       </p>
                       <p className="type-figure mt-0.5 text-[0.75rem] text-ink-faint">
                         {account.account_number}
+                        {accountTypeAside(account) && (
+                          <span className="font-sans"> · {accountTypeAside(account)}</span>
+                        )}
                       </p>
                     </div>
                     <ChevronRightIcon
@@ -141,22 +146,30 @@ export function AccountsPage() {
 function OpenAccountDialog({ held }: { held: number }) {
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<AccountType>('savings')
+  const [alias, setAlias] = useState('')
   const openAccount = useOpenAccount()
 
   const submit = () => {
-    openAccount.mutate(type, {
-      onSuccess: () => {
-        setOpen(false)
-        setType('savings')
-        openAccount.reset()
+    openAccount.mutate(
+      { type, alias },
+      {
+        onSuccess: () => {
+          setOpen(false)
+          setType('savings')
+          setAlias('')
+          openAccount.reset()
+        },
       },
-    })
+    )
   }
 
   const failure = openAccount.error
   const message =
     failure instanceof ApiError
-      ? failure.message
+      ? // The per-field message when the alias is what the server objected to.
+        // Without it the dialog answers a rejected alias with the generic envelope
+        // message and never says which field to fix — and this form has two.
+        (failure.fields?.alias ?? failure.message)
       : failure
         ? 'No pudimos abrir la cuenta. Inténtalo de nuevo.'
         : null
@@ -225,6 +238,33 @@ function OpenAccountDialog({ held }: { held: number }) {
             </label>
           ))}
         </fieldset>
+
+        {/* Optional, and the help text says what happens if it is left alone. Offering
+            it here rather than only afterwards is the point: a second savings account
+            is indistinguishable from the first the moment it exists, so the name is
+            most useful at the moment of opening. */}
+        <div className="grid gap-1.5" aria-disabled={openAccount.isPending}>
+          <label
+            htmlFor="account-alias"
+            className="text-[0.8125rem] font-medium text-ink-soft"
+          >
+            Alias de la cuenta{' '}
+            <span className="font-normal text-ink-faint">(opcional)</span>
+          </label>
+          <Input
+            id="account-alias"
+            value={alias}
+            onChange={(event) => setAlias(event.target.value)}
+            placeholder="Gastos del mes"
+            maxLength={MAX_ALIAS}
+            disabled={openAccount.isPending}
+            autoComplete="off"
+          />
+          <p className="text-[0.75rem] text-ink-faint">
+            Para distinguirla de otras del mismo tipo. Sin alias se muestra como «
+            {TYPES.find((option) => option.value === type)?.label}».
+          </p>
+        </div>
 
         {message && (
           <p role="alert" className="text-[0.8125rem] text-danger-text">

@@ -13,11 +13,17 @@ import (
 // Account is a row of the accounts table: the descriptive half of an account.
 // The other half — how much money is in it — is only in the ledger.
 type Account struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	Number    string
-	LedgerID  ledger.AccountID
-	Kind      ledger.AccountKind
+	ID       uuid.UUID
+	UserID   uuid.UUID
+	Number   string
+	LedgerID ledger.AccountID
+	Kind     ledger.AccountKind
+	// Alias is what the customer calls this account. Empty means they have not named
+	// it, and the interface falls back to the account's type — which is why this is a
+	// plain string rather than a pointer: "unnamed" and "named the empty string" are
+	// the same thing to a person, and a nullable column would only spread that
+	// non-distinction through every layer above.
+	Alias     string
 	Currency  string
 	CreatedAt time.Time
 }
@@ -34,12 +40,12 @@ const (
 // nothing to keep in sync with the ledger and no way for the two to disagree.
 func (q *Queries) CreateAccount(ctx context.Context, a Account) (Account, error) {
 	const query = `
-		INSERT INTO accounts (id, user_id, account_number, ledger_id, account_type, currency)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO accounts (id, user_id, account_number, ledger_id, account_type, alias, currency)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING created_at`
 
 	err := q.q.QueryRow(ctx, query,
-		a.ID, a.UserID, a.Number, int64(a.LedgerID), a.Kind.String(), a.Currency,
+		a.ID, a.UserID, a.Number, int64(a.LedgerID), a.Kind.String(), a.Alias, a.Currency,
 	).Scan(&a.CreatedAt)
 	if err != nil {
 		return Account{}, wrap("store.CreateAccount", err)
@@ -51,7 +57,7 @@ func (q *Queries) CreateAccount(ctx context.Context, a Account) (Account, error)
 // opened with stays at the top of the dashboard.
 func (q *Queries) AccountsByUser(ctx context.Context, userID uuid.UUID) ([]Account, error) {
 	const query = `
-		SELECT id, user_id, account_number, ledger_id, account_type, currency, created_at
+		SELECT id, user_id, account_number, ledger_id, account_type, alias, currency, created_at
 		FROM accounts WHERE user_id = $1 ORDER BY created_at, account_number`
 
 	rows, err := q.q.Query(ctx, query, userID)
@@ -76,7 +82,7 @@ func (q *Queries) AccountsByUser(ctx context.Context, userID uuid.UUID) ([]Accou
 // own.
 func (q *Queries) AccountByNumber(ctx context.Context, number string) (Account, error) {
 	const query = `
-		SELECT id, user_id, account_number, ledger_id, account_type, currency, created_at
+		SELECT id, user_id, account_number, ledger_id, account_type, alias, currency, created_at
 		FROM accounts WHERE account_number = $1`
 
 	a, err := scanAccount(q.q.QueryRow(ctx, query, number))
@@ -84,6 +90,28 @@ func (q *Queries) AccountByNumber(ctx context.Context, number string) (Account, 
 		return Account{}, wrap("store.AccountByNumber", err)
 	}
 	return a, nil
+}
+
+// UpdateAccountAlias sets what the customer calls an account.
+//
+// Keyed by account number and not by owner: authorisation happens at the service
+// layer, which resolves the account through the same ownership check every other
+// operation uses. Repeating it in the WHERE clause would be a second place for that
+// rule to live, and the one that drifts is always the copy.
+//
+// An empty alias is a normal value, not a missing one — it is how a customer removes
+// a name they no longer want.
+func (q *Queries) UpdateAccountAlias(ctx context.Context, number, alias string) error {
+	const query = `UPDATE accounts SET alias = $2 WHERE account_number = $1`
+
+	tag, err := q.q.Exec(ctx, query, number, alias)
+	if err != nil {
+		return wrap("store.UpdateAccountAlias", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return wrap("store.UpdateAccountAlias", pgx.ErrNoRows)
+	}
+	return nil
 }
 
 // AccountNumberTaken reports whether a generated number is already in use, used
@@ -110,7 +138,7 @@ func scanAccount(s scanner) (Account, error) {
 		ledgerID int64
 		kind     string
 	)
-	if err := s.Scan(&a.ID, &a.UserID, &a.Number, &ledgerID, &kind, &a.Currency, &a.CreatedAt); err != nil {
+	if err := s.Scan(&a.ID, &a.UserID, &a.Number, &ledgerID, &kind, &a.Alias, &a.Currency, &a.CreatedAt); err != nil {
 		return Account{}, err
 	}
 	a.LedgerID = ledger.AccountID(ledgerID)

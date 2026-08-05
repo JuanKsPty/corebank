@@ -5,9 +5,10 @@ Sistema de banca en línea con **ledger contable de doble entrada** sobre
 las cuentas en lenguaje natural a través del
 [Model Context Protocol](https://modelcontextprotocol.io).
 
-**Demo en vivo:** <https://corebank.juank.tech> — entra con las
-[credenciales de prueba](#credenciales-de-prueba), que la pantalla de acceso ofrece
-en un botón.
+**Demo en vivo:** <https://corebank.juank.tech> — el botón «Entrar con la cuenta de
+prueba» de la portada te deja dentro en un clic, con el formulario ya lleno. Las
+[credenciales](#credenciales-de-prueba) también están abajo, y la pantalla de acceso
+ofrece las dos cuentas.
 
 ---
 
@@ -93,6 +94,29 @@ La mayoría de las interfaces bancarias no pueden expresar el del medio, porque
 guardan el saldo en una columna. Aquí el saldo **siempre** se lee de TigerBeetle:
 **Postgres no tiene columna de saldo**, y es deliberado — no existe la posibilidad
 de que dos almacenes discrepen sobre cuánto dinero hay.
+
+### Una cuenta se puede llamar como quiera su dueño
+
+Un número identifica una cuenta; no ayuda a nadie a reconocerla. Sin alias, todas las
+etiquetas salían del tipo —«Ahorros», «Corriente», «Inversión»— y **dos cuentas del
+mismo tipo eran indistinguibles** salvo por los últimos cuatro dígitos. No es un caso
+raro: un cliente puede tener seis cuentas y solo hay tres tipos.
+
+El alias es opcional y va en PostgreSQL, nunca en el ledger, que no guarda texto. Si
+está vacío la interfaz muestra el tipo, y ese respaldo **existe en una sola función**
+(`accountLabel`) porque seis pantallas etiquetan cuentas y la que se olvidara del
+respaldo sería justo la que enseñara dos cuentas idénticas.
+
+Dos detalles que no son cosméticos. El límite de 40 se mide en **caracteres y no en
+bytes**: «Ahorros de mamá» son 15 caracteres y 16 bytes, y un límite en bytes recorta
+los nombres con tilde antes de tiempo. Y se rechazan los caracteres invisibles y los de
+control bidireccional: un alias hecho de espacios de ancho cero se ve en blanco sin
+estar vacío, y `U+202E` invierte cómo se dibuja el texto que le sigue. Una etiqueta de
+cuenta se lee para decidir a dónde va el dinero, así que no puede mostrar algo distinto
+de lo que guarda.
+
+Los alias **no son únicos**, como en un banco real. El número sigue siendo el
+identificador y la interfaz lo muestra siempre al lado.
 
 ### La confirmación de acciones críticas es un paso de servidor
 
@@ -264,17 +288,47 @@ en lo más caro de una conversación y lo más rentable de cachear. Se mide, no 
 cd api && go test ./internal/chat/ -run TestFixedPreambleSize -v
 ```
 
-Sin clave reporta los caracteres (**5.919**: 2.532 del prompt de sistema y 3.387 de
+Sin clave reporta los caracteres (**6.203**: 2.816 del prompt de sistema y 3.387 de
 las herramientas). Con `ANTHROPIC_API_KEY` puesta pregunta el conteo exacto a
 `/v1/messages/count_tokens`, que **no cobra nada**, y falla si el preámbulo baja de
 los 1.024 tokens que la caché necesita para activarse en Sonnet. Esa es la regresión
 que ese test existe para atrapar: por debajo de la línea, `cache_control` se sigue
 enviando y deja de hacer nada, sin que nada falle para avisarlo.
 
-Ese umbral es también el motivo del modelo elegido. El mínimo de caché de Sonnet son
-1.024 tokens; el de Haiku 4.5 son 2.048. **El preámbulo es cacheable en Sonnet y no en
-Haiku**, así que Sonnet con caché cuesta más o menos lo que Haiku sin ella, con un
-modelo mejor para un bucle agéntico con contrato de confirmación.
+### La caché, medida en producción
+
+Un mensaje real deja dos líneas en el log, una por vuelta del bucle de herramientas:
+
+```
+AI spend  cost_micros=7269  cache_write_tokens=2722  cache_read_tokens=0
+AI spend  cost_micros=1375  cache_write_tokens=103   cache_read_tokens=2722
+```
+
+La primera llamada escribe el preámbulo en la caché; la segunda **lo lee entero** y
+cuesta una quinta parte. El mensaje completo sale por **8.644 micro-dólares, menos de
+un centavo**, así que los $4 del techo dan para unos 460 mensajes.
+
+Esa medición corrigió dos cosas que este README afirmaba y que eran falsas.
+
+El preámbulo son **~2.800 tokens, no los 1.500–1.700** que se estimaban contando
+caracteres. La proporción real es de **2,2 caracteres por token**, no los 3,5–4 de la
+regla habitual, porque el español y los esquemas JSON tokenizan más denso que la prosa
+inglesa de la que sale esa regla. Los 2.722 del log son de antes de añadirle una línea
+al prompt.
+
+Eso obligó a bajar `charsPerToken` de 3 a 2 en la estimación que reserva presupuesto.
+Con 3, la parte de entrada quedaba un **27% por debajo** de la real, y la reserva solo
+seguía siendo mayor que el gasto porque el techo de salida —cinco veces más caro y que
+se asume gastado entero— la sostenía. Eso es la garantía del techo apoyada en una
+constante que existe para otra cosa: bajar `maxReplyTokens` por un buen motivo la habría
+roto en silencio. Hay un test que fija esa propiedad por separado.
+
+Y con eso se cae el argumento de coste a favor de Sonnet. El preámbulo supera **los dos
+mínimos** —1.024 de Sonnet y 2.048 de Haiku 4.5— así que en Haiku también se cachearía;
+decir lo contrario era una conclusión sacada de una cifra mal estimada. Sonnet se queda
+por lo que sí se sostiene: es un bucle agéntico con un contrato de confirmación que un
+modelo más pequeño se salta, y a menos de un centavo por mensaje el ahorro no compra
+nada que valga ese riesgo.
 
 ### Conversaciones para probar
 
@@ -310,11 +364,13 @@ Errores en un formato único: `{"error":{"code":"…","message":"…","fields":{
 | `GET` | `/api/me` | Perfil y cuentas. |
 | `GET` | `/api/dashboard/summary` | Totales, recientes y series para la gráfica. |
 | `GET` | `/api/accounts` | Cuentas del usuario, con saldo leído de TigerBeetle. |
-| `POST` | `/api/accounts` | Abre una cuenta adicional. Máximo 6 por cliente. |
+| `POST` | `/api/accounts` | Abre una cuenta adicional. Máximo 6 por cliente. Acepta un `alias` opcional. |
 | `GET` | `/api/accounts/{number}` | Detalle. |
+| `PATCH` | `/api/accounts/{number}` | Cambia el alias. Vacío lo quita. |
 | `GET` | `/api/accounts/{number}/balance` | Saldo puntual. |
 | `GET` | `/api/accounts/{number}/transactions` | Historial de la cuenta, paginado por cursor. |
 | `GET` | `/api/transactions` | Historial consolidado, con filtros y paginación por cursor. |
+| `GET` | `/api/transactions/export.csv` | Los mismos filtros, como archivo. Sin paginar: un extracto es un documento. |
 | `POST` | `/api/transactions/deposit` | Acepta `Idempotency-Key`. |
 | `POST` | `/api/transactions/withdraw` | Acepta `Idempotency-Key`. |
 | `POST` | `/api/transactions/transfer` | Acepta `Idempotency-Key`. Valida la cuenta destino. |
@@ -327,6 +383,28 @@ Errores en un formato único: `{"error":{"code":"…","message":"…","fields":{
 Confirmar y cancelar viven bajo `/api/transactions` y no bajo `/api/chat` a
 propósito: son operaciones bancarias, no de conversación, y funcionan igual venga la
 propuesta del chat o de cualquier otro sitio.
+
+### El extracto en CSV
+
+`export.csv` toma **los mismos filtros** que el historial y los aplica igual, así que
+el archivo describe exactamente lo que había en pantalla al pulsar el botón. Lo único
+que ignora es el cursor: un extracto es un documento, no una página de uno, así que
+recorre las páginas por dentro y las escribe como un solo archivo, **en streaming**
+—el coste en memoria no lo fija el cliente con más movimientos del banco.
+
+Tres detalles que deciden si el archivo sirve:
+
+- **Lleva BOM de UTF-8.** Excel lee un CSV con la codificación heredada del sistema si
+  no lo encuentra, y convierte cada «Depósito» en galimatías. Todo lo que no es Excel
+  lo ignora.
+- **Los montos van con punto y dos decimales**, la misma forma que devuelve la API.
+  Un «1.234,56» localizado se leería mejor y dejaría de ser un dato que se pueda
+  volver a parsear.
+- **Las fechas en RFC 3339 y en UTC**, para que la columna signifique lo mismo la abra
+  quien la abra y el archivo no se lleve la zona horaria del servidor.
+
+Una descripción con comas, comillas o saltos de línea no descuadra las columnas: hay
+un test que escribe esas cuatro y vuelve a leer el archivo para comprobarlo.
 
 ### Un cliente no puede ver la cuenta de otro
 

@@ -16,7 +16,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
-import { accountTypeLabel, money, movementLabel } from '@/lib/format'
+import { accountLabel, accountTypeAside, money, movementLabel } from '@/lib/format'
 import { useMe, useMovement } from '@/lib/queries'
 import {
   accountNumberProblem,
@@ -156,11 +156,12 @@ function AvailableAside({
         {accounts.map((account) => (
           <li key={account.account_number} className="card p-4">
             <div className="flex items-baseline justify-between gap-3">
-              <p className="text-[0.8125rem] font-medium">
-                {accountTypeLabel(account.account_type)}
+              <p className="min-w-0 truncate text-[0.8125rem] font-medium">
+                {accountLabel(account)}
               </p>
-              <p className="type-figure text-[0.6875rem] text-ink-faint">
+              <p className="type-figure shrink-0 text-[0.6875rem] text-ink-faint">
                 ···{account.account_number.slice(-4)}
+                {accountTypeAside(account) && ` · ${accountTypeAside(account)}`}
               </p>
             </div>
             <p className="mt-2">
@@ -394,7 +395,7 @@ function MovementForm({
                   key={account.account_number}
                   value={account.account_number}
                 >
-                  {accountTypeLabel(account.account_type)} · {account.account_number} ·{' '}
+                  {accountLabel(account)} · {account.account_number} ·{' '}
                   {money(account.available)}
                 </NativeSelectOption>
               ))}
@@ -420,7 +421,7 @@ function MovementForm({
                 key={account.account_number}
                 value={account.account_number}
               >
-                {accountTypeLabel(account.account_type)} · {account.account_number}
+                {accountLabel(account)} · {account.account_number}
               </NativeSelectOption>
             ))}
           </NativeSelect>

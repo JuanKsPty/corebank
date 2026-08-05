@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useSession } from '@/lib/session'
 import { emailProblem, isClean, type Errors } from '@/lib/validate'
-import { AuthLayout, AuthLink, DemoCredentials } from './AuthLayout'
+import { AuthLayout, AuthLink, DEMO_ACCOUNTS, DemoCredentials } from './AuthLayout'
 
 type FieldName = 'email' | 'password'
 
@@ -19,15 +19,24 @@ export function SignInPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const state = location.state as { from?: string; demo?: boolean } | null
+
+  // Arriving from the landing page's "entrar con la cuenta de prueba" fills the form,
+  // so that button costs one click rather than one click and a look-up. It fills
+  // rather than submits: signing somebody in before they have seen the screen takes
+  // the decision away from them, and the credentials are worth seeing — they are how
+  // anybody evaluating this gets back in later.
+  const demo = state?.demo ? DEMO_ACCOUNTS[0] : null
+
+  const [email, setEmail] = useState(demo?.email ?? '')
+  const [password, setPassword] = useState(demo?.password ?? '')
   const [errors, setErrors] = useState<Errors<FieldName>>({})
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   // Where the customer was headed before the session ended, so an expiry returns
   // them to the page they were on rather than to the dashboard.
-  const returnTo = (location.state as { from?: string } | null)?.from ?? '/'
+  const returnTo = state?.from ?? '/'
 
   function validate(): Errors<FieldName> {
     return {

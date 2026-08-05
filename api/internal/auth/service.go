@@ -100,7 +100,10 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Session, erro
 			return err
 		}
 
-		if _, err := s.accounts.Open(ctx, q, userID, in.AccountKind); err != nil {
+		// No alias on the account somebody registers with: they have not been asked
+		// for one and inventing a name on their behalf would be putting words in
+		// their mouth. The interface labels it by its type until they say otherwise.
+		if _, err := s.accounts.Open(ctx, q, userID, in.AccountKind, ""); err != nil {
 			return err
 		}
 		return nil

@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -35,6 +36,11 @@ func (h *Handler) Routes(history http.HandlerFunc) http.Handler {
 	r.Get("/", h.list)
 	r.Post("/", h.open)
 	r.Get("/{number}", h.get)
+	// The first update endpoint in this API. PATCH rather than PUT because it
+	// changes one field of an account and leaves the rest alone; a PUT would imply
+	// the body is the whole account, which it never is — nobody may replace a
+	// balance or a number.
+	r.Patch("/{number}", h.rename)
 	r.Get("/{number}/balance", h.balance)
 	r.Get("/{number}/transactions", history)
 	return r
@@ -74,7 +80,7 @@ func (h *Handler) open(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.svc.OpenFor(r.Context(), identity.MustFromContext(r.Context()), kind)
+	account, err := h.svc.OpenFor(r.Context(), identity.MustFromContext(r.Context()), kind, req.Alias)
 	if err != nil {
 		httpx.Fail(w, r, TranslateError(err))
 		return
@@ -123,6 +129,17 @@ func TranslateError(err error) error {
 			"too_many_accounts",
 			"Ya tienes el máximo de cuentas que puedes abrir.",
 		).WithCause(err)
+	case errors.Is(err, ErrAliasTooLong):
+		return httpx.Invalid(map[string]string{
+			"alias": fmt.Sprintf("El alias admite como máximo %d caracteres.", maxAliasRunes),
+		}).WithCause(err)
+	case errors.Is(err, ErrAliasInvalid):
+		// Deliberately not quoting the offending character back: the ones this
+		// rejects are invisible or reverse the text around them, so echoing one into
+		// an error message would produce a message that cannot be read either.
+		return httpx.Invalid(map[string]string{
+			"alias": "El alias tiene caracteres que no se pueden mostrar.",
+		}).WithCause(err)
 	case errors.Is(err, ErrNumberUnavailable):
 		return httpx.Internal(err)
 	default:
@@ -134,6 +151,35 @@ func TranslateError(err error) error {
 
 type openRequest struct {
 	AccountType string `json:"account_type"`
+	// Alias is optional. Omitting it opens an account the interface labels by its
+	// type, which is what every account did before names existed.
+	Alias string `json:"alias"`
+}
+
+type renameRequest struct {
+	Alias string `json:"alias"`
+}
+
+// rename changes what the customer calls one of their accounts.
+//
+// The only thing this can change is a label. It cannot move money, cannot reach an
+// account the caller does not hold, and an empty alias is a valid request rather than
+// a missing field — it is how a name is removed.
+func (h *Handler) rename(w http.ResponseWriter, r *http.Request) {
+	var req renameRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	account, err := h.svc.Rename(r.Context(),
+		identity.MustFromContext(r.Context()), chi.URLParam(r, "number"), req.Alias)
+	if err != nil {
+		httpx.Fail(w, r, TranslateError(err))
+		return
+	}
+
+	httpx.JSON(w, r, http.StatusOK, NewView(account))
 }
 
 type accountListResponse struct {
@@ -147,6 +193,10 @@ type View struct {
 	ID     string `json:"id"`
 	Number string `json:"account_number"`
 	Type   string `json:"account_type"`
+	// Alias is what the customer calls this account, or empty if they have not named
+	// it. The interface falls back to the type, and does so in one place so the two
+	// cannot drift.
+	Alias string `json:"alias"`
 	// Available is what can be spent: the posted balance minus anything held by
 	// an unconfirmed movement. It is the figure the interface shows.
 	Available money.Amount `json:"available"`
@@ -162,6 +212,7 @@ func NewView(a Account) View {
 		ID:        a.ID.String(),
 		Number:    a.Number,
 		Type:      a.Kind.String(),
+		Alias:     a.Alias,
 		Available: a.Balance.Available.Amount(),
 		Posted:    a.Balance.Posted.Amount(),
 		Held:      a.Balance.Held.Amount(),

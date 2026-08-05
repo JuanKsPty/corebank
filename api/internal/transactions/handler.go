@@ -36,6 +36,10 @@ func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", h.history)
+	// A separate route rather than a format parameter on the one above. The two
+	// differ in more than encoding: this one is not paginated, because a statement
+	// is a document and not a page of one.
+	r.Get("/export.csv", h.exportCSV)
 	r.Post("/deposit", h.deposit)
 	r.Post("/withdraw", h.withdraw)
 	r.Post("/transfer", h.transfer)

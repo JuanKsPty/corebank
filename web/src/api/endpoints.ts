@@ -1,4 +1,4 @@
-import { newIdempotencyKey, request } from './client'
+import { newIdempotencyKey, request, requestFile } from './client'
 import type {
   Account,
   AccountType,
@@ -88,14 +88,36 @@ export interface HistoryQuery {
  * The owner is never sent: the server takes it from the session. A body carrying a user
  * id would be one forged field away from opening an account in somebody else's name.
  */
-export function openAccount(accountType: AccountType) {
+export function openAccount(accountType: AccountType, alias = '') {
   return request<Account>('/api/accounts', {
     method: 'POST',
-    body: { account_type: accountType },
+    body: { account_type: accountType, alias },
   })
 }
 
-export function fetchHistory(query: HistoryQuery = {}) {
+/**
+ * Renames one of the signed-in customer's accounts.
+ *
+ * PATCH because it changes one field and leaves the rest alone; a PUT would imply the
+ * body is the whole account, and nobody may replace a balance or a number. An empty
+ * alias is a valid request — it is how a name is removed, and the account goes back to
+ * being labelled by its type.
+ */
+export function renameAccount(accountNumber: string, alias: string) {
+  return request<Account>(`/api/accounts/${encodeURIComponent(accountNumber)}`, {
+    method: 'PATCH',
+    body: { alias },
+  })
+}
+
+/**
+ * The filters, as the API takes them.
+ *
+ * Shared by the paginated view and the CSV export so the file can only ever describe
+ * the same movements the screen was showing. Built separately, the two would agree
+ * until the day a filter was added to one of them.
+ */
+function historyParams(query: HistoryQuery): URLSearchParams {
   const params = new URLSearchParams()
   if (query.accountNumber) params.set('account_number', query.accountNumber)
   if (query.kind) params.set('kind', query.kind)
@@ -104,9 +126,24 @@ export function fetchHistory(query: HistoryQuery = {}) {
   if (query.search) params.set('search', query.search)
   if (query.limit) params.set('limit', String(query.limit))
   if (query.cursor) params.set('cursor', query.cursor)
+  return params
+}
 
-  const qs = params.toString()
+export function fetchHistory(query: HistoryQuery = {}) {
+  const qs = historyParams(query).toString()
   return request<TransactionPage>(`/api/transactions${qs ? `?${qs}` : ''}`)
+}
+
+/**
+ * Downloads the filtered history as a CSV file.
+ *
+ * `limit` and `cursor` are dropped rather than forwarded. They belong to reading the
+ * history a page at a time, and a statement is a document: sending a cursor would ask
+ * the server for a file that silently begins in the middle of somebody's movements.
+ */
+export function exportHistoryCSV(query: HistoryQuery = {}) {
+  const qs = historyParams({ ...query, limit: undefined, cursor: undefined }).toString()
+  return requestFile(`/api/transactions/export.csv${qs ? `?${qs}` : ''}`)
 }
 
 // --- chat -------------------------------------------------------------------

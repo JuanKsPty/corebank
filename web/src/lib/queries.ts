@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import * as api from '@/api/endpoints'
 import type { HistoryQuery, MovementInput } from '@/api/endpoints'
+import type { AccountType } from '@/api/types'
 
 /**
  * Server state.
@@ -108,7 +109,29 @@ export function useOpenAccount() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: api.openAccount,
+    mutationFn: ({ type, alias }: { type: AccountType; alias?: string }) =>
+      api.openAccount(type, alias),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.me })
+      void queryClient.invalidateQueries({ queryKey: keys.dashboard })
+    },
+  })
+}
+
+/**
+ * Renames one of the customer's accounts.
+ *
+ * Invalidates the same two queries as opening one, because an account's label appears
+ * on every screen that lists accounts and both of these feed those lists. A rename that
+ * showed on the detail page but not in the transfer picker would leave somebody choosing
+ * between an old name and a new one.
+ */
+export function useRenameAccount() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ number, alias }: { number: string; alias: string }) =>
+      api.renameAccount(number, alias),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.me })
       void queryClient.invalidateQueries({ queryKey: keys.dashboard })

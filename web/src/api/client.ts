@@ -105,6 +105,40 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (await response.json()) as T
 }
 
+/**
+ * Fetches a file instead of JSON, with the same one-shot refresh on a 401.
+ *
+ * A download cannot be a plain link here. The session travels as a bearer token in a
+ * header, and a browser navigating to an href sends no headers of ours — the request
+ * would arrive unauthenticated and come back a 401 rendered as a page. So the file is
+ * fetched like any other call and handed to the browser as a blob.
+ *
+ * The filename comes from the server's Content-Disposition when it sends one, so the
+ * name of the file is decided in the same place as its contents rather than guessed at
+ * twice.
+ */
+export async function requestFile(
+  path: string,
+  options: RequestOptions = {},
+): Promise<{ blob: Blob; filename?: string }> {
+  let response = await rawRequest(path, options)
+
+  if (response.status === 401 && !options.skipRefresh) {
+    if (await refreshSession()) {
+      response = await rawRequest(path, options)
+    }
+  }
+
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const match = /filename="?([^"]+)"?/.exec(disposition)
+
+  return { blob: await response.blob(), filename: match?.[1] }
+}
+
 async function toApiError(response: Response): Promise<ApiError> {
   let body: ApiErrorBody['error'] = {
     code: 'unknown',

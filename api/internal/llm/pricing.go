@@ -119,12 +119,21 @@ func perMillion(tokens int, ratePerMillion int64) int64 {
 
 // charsPerToken is the ratio used to size a call before it is made.
 //
-// Deliberately low. Real text runs around 3.5–4 characters per token, so assuming
-// three overestimates the token count by a fifth or so — which is what an estimate
-// used to reserve budget should do. The reservation is released and replaced by the
-// real figure as soon as the model answers, so the cost of guessing high is that
-// the ceiling is approached slightly early, not that anybody is charged more.
-const charsPerToken = 3
+// Two, measured, and not the three this started as. That first value came from the
+// usual rule of thumb that text runs 3.5 to 4 characters per token, which would have
+// made the estimate comfortably conservative. It is not what this prompt does: a
+// production call reported 2722 cached tokens for a preamble of 5919 characters,
+// which is 2.2 characters per token. Spanish prose and JSON schemas both tokenise
+// denser than the English prose the rule of thumb is drawn from.
+//
+// At three, the input side of the estimate came out 27% *under* the real figure. The
+// reservation still exceeded what the call cost, but only because the output
+// allowance — priced at five times input and assumed to be spent in full — was
+// carrying it. That is the ceiling's central guarantee resting on an unrelated
+// constant: lower maxReplyTokens for a good reason and the estimate quietly stops
+// being conservative, with nothing failing to say so. At two the input side
+// over-estimates on its own, which is what the argument for the ceiling assumes.
+const charsPerToken = 2
 
 // EstimateCost sizes a call before making it, for the reservation.
 //

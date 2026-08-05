@@ -1,5 +1,5 @@
 import { LogOutIcon, SparklesIcon } from 'lucide-react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { useAssistant } from '@/components/assistant/AssistantProvider'
 import { Wordmark } from '@/components/Wordmark'
@@ -40,9 +40,13 @@ export function DesktopNav({ className }: { className?: string }) {
   return (
     <header className={cn('sticky top-0 z-30 bg-ink text-paper', className)}>
       <div className="mx-auto flex w-full max-w-[88rem] items-center gap-8 px-6 py-3 xl:px-8">
-        <NavLink to="/panel" className="shrink-0" aria-label="corebank, ir al resumen">
+        {/* A plain Link, not a NavLink. NavLink marks itself aria-current="page" when
+            its route is active, which on /panel made a screen reader announce the
+            wordmark as the current page alongside the nav item that actually is one.
+            This is the way home, not a section. */}
+        <Link to="/panel" className="shrink-0" aria-label="corebank, ir al resumen">
           <Wordmark className="h-[18px] text-paper" />
-        </NavLink>
+        </Link>
 
         <nav aria-label="Secciones principales" className="flex items-center gap-1">
           {ROUTES.map((item) => {

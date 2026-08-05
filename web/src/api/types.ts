@@ -22,6 +22,11 @@ export interface Account {
   id: string
   account_number: string
   account_type: AccountType
+  /**
+   * What the customer calls this account, or empty if they have not named it.
+   * Read it through `accountLabel`, which falls back to the type in one place.
+   */
+  alias: string
   /** What can be spent: posted minus anything held by an unconfirmed movement. */
   available: Amount
   /** The settled balance, before reservations are deducted. */
