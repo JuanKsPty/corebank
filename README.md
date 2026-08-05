@@ -182,9 +182,99 @@ texto, es que la confirmación sea un paso de servidor.
 `ANTHROPIC_API_KEY` es la única dependencia externa del sistema, y es opcional. Sin
 ella el asistente responde con un proveedor **basado en reglas** que maneja las
 mismas seis herramientas por el mismo servidor MCP y el mismo flujo de confirmación.
-La interfaz dice cuál motor está activo — «Modelo claude-sonnet-5» o «Sin IA
-configurada» — porque presentar un fallback de reglas como IA sería mentir sobre el
-producto.
+La interfaz dice cuál motor está activo, porque presentar un fallback de reglas como
+IA sería mentir sobre el producto.
+
+### El gasto también es imposible por construcción
+
+La demo es pública, el registro está abierto y las credenciales de prueba están
+publicadas más arriba. Eso significa que la clave de API es alcanzable por cualquiera
+que abra la página, y que sin un techo el presupuesto es lo que decida gastar un
+desconocido. Un límite por IP lo frena; no lo acota.
+
+Así que **el gasto usa el mismo mecanismo que el dinero**. Una transferencia reserva
+fondos antes de moverlos, porque consultar un saldo y luego debitarlo son dos
+sentencias y veinte peticiones simultáneas leen todas la misma cifra alentadora. Una
+llamada al modelo reserva su costo estimado antes de hacerse, por la misma razón, y
+liquida la cifra real después. El techo aguanta con concurrencia porque la
+comprobación y el incremento son **una sola sentencia** — la misma forma que el
+`debits_must_not_exceed_credits` del ledger:
+
+```sql
+UPDATE ai_budget SET reserved_micros = reserved_micros + $3
+ WHERE scope = $1 AND key = $2
+   AND spent_micros + reserved_micros + $3 <= cap_micros
+```
+
+Cero filas afectadas significa que el techo se cruzaría, y entonces la llamada no se
+hace. Tres techos, y el más estrecho gana: total, diario y por cliente y día. Todo en
+**micro-dólares enteros**, porque una llamada cuesta una fracción de centavo y un
+contador que no puede representar lo que cuenta no es un contador.
+
+Lo que esto garantiza, con precisión: una llamada no empieza si su *estimación* no
+cabe, y la estimación es deliberadamente alta — cobra todo token de entrada a tarifa
+sin caché y asume que el modelo escribe hasta su límite de salida, y ninguna de las
+dos cosas suele ser cierta. Liquidar devuelve la diferencia no gastada, que es por lo
+que caben más llamadas de las que la estimación predecía. Eso es el mecanismo
+funcionando, no una fuga.
+
+**Y cuando se agota, se degrada en vez de romperse.** Antes el proveedor se elegía una
+sola vez al arrancar: un 400 de «credit balance too low» se convertía en «el asistente
+no está disponible ahora mismo, vuelve a intentarlo en un momento», que es falso —no
+va a volver nunca— mientras el motor de reglas estaba ahí sin usarse. Ahora un fallo
+se clasifica por si va a resolverse solo:
+
+| Situación | Trato |
+|---|---|
+| 400 que menciona crédito o facturación | **permanente**: se enclava, no se reintenta |
+| 401 · 403 (clave rechazada o revocada) | **permanente** |
+| 429 · 5xx · timeouts | **transitorio**: este mensaje lo responden las reglas, el siguiente reintenta |
+| Techo de gasto alcanzado | permanente si es el total; el diario reabre mañana |
+
+La interfaz tiene **cuatro** estados, no dos, porque `is_ai` solo colapsaba tres
+situaciones distintas en un «sin IA» que no explica nada:
+
+| Estado | Etiqueta |
+|---|---|
+| `ai` | `Modelo claude-sonnet-5` |
+| `unconfigured` | `Sin IA configurada · respondo con reglas` |
+| `budget_exhausted` | `Presupuesto de IA agotado · respondo con reglas` |
+| `degraded` | `IA no disponible ahora · respondo con reglas` |
+
+El evento `done` del SSE lleva el motor efectivo, así que la etiqueta cambia sin
+recargar: el presupuesto se puede agotar a mitad de una sesión, y atribuir a un modelo
+una respuesta que no escribió sería la misma mentira que presentar las reglas como IA.
+
+El saldo restante se registra en el log y **no se publica**: decirle a un visitante
+cuánto queda es decírselo también a quien quiera agotarlo.
+
+### Qué cuesta, medido y no estimado
+
+`ai_usage` guarda una fila por llamada con las **cuatro** cuentas de tokens
+separadas —entrada, salida, escritura de caché, lectura de caché— porque se facturan
+a cuatro tarifas distintas: escribir la caché cuesta un 25% más que enviar los tokens
+en claro, leerla cuesta una décima parte. Una sola columna `input_tokens` cotizaría mal
+toda llamada después de la primera y ocultaría si la caché sirve de algo.
+
+El preámbulo fijo —prompt de sistema más los seis esquemas de herramientas— sale en
+**cada** llamada, incluida cada vuelta del bucle de herramientas, lo que lo convierte
+en lo más caro de una conversación y lo más rentable de cachear. Se mide, no se supone:
+
+```bash
+cd api && go test ./internal/chat/ -run TestFixedPreambleSize -v
+```
+
+Sin clave reporta los caracteres (**5.919**: 2.532 del prompt de sistema y 3.387 de
+las herramientas). Con `ANTHROPIC_API_KEY` puesta pregunta el conteo exacto a
+`/v1/messages/count_tokens`, que **no cobra nada**, y falla si el preámbulo baja de
+los 1.024 tokens que la caché necesita para activarse en Sonnet. Esa es la regresión
+que ese test existe para atrapar: por debajo de la línea, `cache_control` se sigue
+enviando y deja de hacer nada, sin que nada falle para avisarlo.
+
+Ese umbral es también el motivo del modelo elegido. El mínimo de caché de Sonnet son
+1.024 tokens; el de Haiku 4.5 son 2.048. **El preámbulo es cacheable en Sonnet y no en
+Haiku**, así que Sonnet con caché cuesta más o menos lo que Haiku sin ella, con un
+modelo mejor para un bucle agéntico con contrato de confirmación.
 
 ### Conversaciones para probar
 
@@ -256,10 +346,13 @@ Todo tiene un default que funciona. `cp .env.example .env` y listo.
 | `TB_ADDRESSES` | `127.0.0.1:3001` | El ledger. **Solo IP:puerto** — su cliente rechaza hostnames. |
 | `TB_CLUSTER_ID` | `0` | Cluster fijo para que el ledger sea reproducible desde un clon limpio. |
 | `JWT_SECRET` | *(vacío)* | Firma los access tokens; mínimo 32 caracteres. Vacío, la API genera uno por proceso: todo funciona, pero las sesiones no sobreviven un reinicio. **Sin valor por defecto en el repo: un secreto de firma commiteado no es un secreto.** |
-| `ANTHROPIC_API_KEY` | *(vacío)* | Única dependencia externa, y opcional. Vacía, el chat responde con reglas locales. |
+| `ANTHROPIC_API_KEY` | *(vacío)* | Única dependencia externa, y opcional. Vacía, el chat responde con reglas locales. **Nunca en el repo**: va en las variables del despliegue, y un check de CI falla si aparece una clave en un archivo versionado. |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5` | |
 | `CONFIRMATION_TTL` | `2m` | Cuánto retiene una reserva antes de que TigerBeetle la libere. |
-| `AI_MAX_TOOL_TURNS` | | Acota el loop agéntico para que un modelo confundido no gire indefinidamente. |
+| `AI_MAX_TOOL_TURNS` | `4` | Vueltas de herramientas por mensaje. Una pregunta bancaria necesita una o dos; cada vuelta reenvía la conversación, así que esto es un techo de costo tanto como de seguridad. |
+| `AI_BUDGET_USD` | `4.00` | Techo de gasto de por vida. `0.00` deshabilita el gasto por completo, que es un estado soportado: responden las reglas. Solo hasta el centavo — pasa por el mismo parser que el dinero, que rechaza más de dos decimales. |
+| `AI_DAILY_BUDGET_USD` | `1.00` | Para que un día malo no se lleve el presupuesto entero. El diario reabre al día siguiente sin reiniciar nada. |
+| `AI_USER_DAILY_BUDGET_USD` | `0.30` | Para que una cuenta no consuma la parte de todos los demás. |
 | `ENV` | `development` | `production` pasa los logs a JSON. |
 | `LOG_LEVEL` / `LOG_FORMAT` | `info` | |
 | `LOGIN_RATE_LIMIT` | `10` | Intentos de login por ventana. |
@@ -378,8 +471,8 @@ api/                      backend Go (module github.com/JuanKsPty/corebank/api)
     accounts/             cuentas, saldos, apertura
     transactions/         movimientos, doble escritura, confirmaciones, sweeper
     mcpserver/            servidor MCP y las 6 herramientas
-    llm/                  proveedor: Anthropic o deshabilitado
-    chat/                 loop agéntico y fallback de reglas
+    llm/                  proveedor, tarifas por modelo y cortes de caché
+    chat/                 loop agéntico, fallback de reglas y techo de gasto
     server/ httpx/        router, middleware, errores, respuestas
     config/ logging/      configuración por entorno y logs estructurados
     seeder/               la importación en sí
@@ -391,6 +484,7 @@ web/                      frontend Vite + React + TypeScript
   src/pages/              landing, acceso, registro, panel, cuentas, mover, historial
   src/lib/                 formato, validación, layout, navegación, queries
 deploy/                   topología de despliegue
+.github/workflows/        los checks que exige la protección de `main`
 docker-compose.yml        el sistema completo, para un clon limpio
 docker-compose.dev.yml    solo las bases de datos, para desarrollar
 ```
@@ -453,6 +547,40 @@ curl -s localhost:8080/healthz          # postgres y tigerbeetle
 7. `docker compose down && docker compose up` → **no** vuelve a sembrar y los saldos
    persisten.
 
+### El techo de gasto
+
+Levanta el stack con `AI_BUDGET_USD=0.00` y una clave puesta. El asistente responde
+igual, la etiqueta dice **«Presupuesto de IA agotado · respondo con reglas»** y en el
+log aparece `the lifetime AI budget is exhausted`. Comprueba que la API **no se llamó
+ni una vez**: el techo se evalúa antes de la llamada, no después.
+
+Con una clave inválida (`ANTHROPIC_API_KEY=sk-ant-invalida`) el primer mensaje sí
+intenta, recibe 401, se enclava y lo responden las reglas. El segundo mensaje **no
+reintenta** — `grep 'failed permanently'` en el log aparece una sola vez. Y en la base:
+
+```sql
+SELECT scope, cap_micros, spent_micros, reserved_micros FROM ai_budget;
+SELECT model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,
+       cost_micros FROM ai_usage ORDER BY id;
+```
+
+`spent_micros` en cero y `reserved_micros` en cero: una petición rechazada no consume
+nada y la reserva se devuelve.
+
+### Que la caché de verdad se está usando
+
+Con una clave real, manda dos mensajes seguidos y mira el log del segundo:
+
+```
+INFO AI spend model=claude-sonnet-5 cost_micros=… cache_read_tokens=1700 …
+```
+
+`cache_read_tokens` en cero en el segundo mensaje significa que la caché no está
+funcionando, y entonces la elección de Sonnet sobre Haiku no se sostiene. Los cortes de
+caché en sí los cubre `go test ./internal/llm/ -run Cache`, que revisa el JSON que
+saldría por el cable: un corte mal puesto no es un error —la petición funciona y solo
+paga de más—, así que la única forma de notarlo es la factura o un test.
+
 ---
 
 ## Despliegue
@@ -471,3 +599,38 @@ ignora `security_opt`**, y sin él el cliente del ledger aborta al iniciar. El
 frontend sí es un servicio de Swarm, porque no necesita nada de eso.
 
 `deploy/api.compose.yml` describe la pieza de la API tal como se despliega.
+
+### La puerta va en el merge, no en el deploy
+
+`.github/workflows/ci.yml` corre en cada pull request a `main` y en cada push a
+`main`. Son cuatro trabajos en paralelo:
+
+| Trabajo | Qué comprueba |
+|---|---|
+| `api` | `gofmt`, `go vet`, `go mod tidy -diff`, build y `go test -race ./...` |
+| `web` | `npm ci`, formato, typecheck y build |
+| `secrets` | Que no haya una clave `sk-ant-…` ni un `.env` en ningún archivo versionado |
+| `images` | Que los dos Dockerfiles sigan construyendo, sin publicar nada |
+
+**No hay trabajo de deploy, ni un token de Dokploy en los secretos de este
+repositorio.** Dokploy está conectado por una GitHub App y despliega solo en un push a
+`main`; la puerta vive en el *merge*, como una regla de branch protection que exige
+estos checks. Así `main` solo puede contener commits que pasaron, y desplegar cada
+commit de `main` es seguro **por construcción** en vez de porque un pipeline se acuerde
+de comprobar primero — la misma forma de argumentar que el resto del proyecto. El
+efecto secundario es una credencial menos que filtrar.
+
+Nada de esto necesita una base de datos ni un ledger: el único test que quiere
+TigerBeetle hace `t.Skip` cuando no lo alcanza, así que la suite entera corre en un
+runner pelado. `ubuntu-latest` y no algo más ligero, porque el cliente de TigerBeetle
+solo enlaza contra glibc.
+
+`go test -race` no es decorativo: el techo de gasto del asistente se guarda con
+atómicos y se alcanza desde peticiones concurrentes. Un techo que solo aguanta cuando
+las peticiones llegan de una en una no es un techo, y su test lanza veinte goroutines
+para decirlo.
+
+**Pendiente, y por qué no está:** construir las imágenes en CI y publicarlas en un
+registro, para que el artefacto probado sea el que corre y el VPS no necesite el
+toolchain de Go ni RAM para compilar el cliente del ledger. Es la decisión más
+defendible; hoy cada deploy recompila en el host, que está verificado y funciona.

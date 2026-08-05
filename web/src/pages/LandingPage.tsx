@@ -15,14 +15,24 @@ import { cn } from '@/lib/utils'
  * you were not. That made `/` a URL nobody could link to, and left the product with no
  * page that says what it is.
  *
- * What it says is one thing, and it demonstrates it rather than claiming it. Every bank
- * shows a balance. This one is built on a double-entry ledger that can hold funds
- * without moving them, so a balance here is three numbers instead of one — and the
- * demonstration below is the real component from the real application, driven by a
- * button. Reserving is what happens when you ask the assistant to move money: the funds
- * leave the spendable total, arrive nowhere, and wait for you. Watching that happen is
- * more convincing than a paragraph about ledgers, and it is the same element that will
- * be on screen a minute later once somebody signs in.
+ * The copy is about what somebody can do here, not about how it is built. The previous
+ * version was the opposite: it opened on "cada movimiento tiene dos lados" — an
+ * accounting truism that sounds like insight and tells a visitor nothing — then said
+ * balances are "derived from a double-entry ledger rather than stored in a column", and
+ * offered "no amount passes through a float" as a selling point. Four mentions of the
+ * ledger and two of integer cents, every claim about the implementation and none about
+ * the product. Nobody chose a bank for its storage model. That is the padding this page
+ * was asked to lose, and the technical detail belongs where it now sits: one quiet line
+ * in the footer, as evidence rather than as the pitch.
+ *
+ * What stays is the demonstration, because it shows instead of telling. Reserving is
+ * what happens when you ask the assistant to move money — the funds leave the spendable
+ * total, arrive nowhere, and wait for you — and this is the real component from the real
+ * application, the same one on screen a minute later once somebody signs in.
+ *
+ * It also says it is a demo, in the footer and before anybody registers. The page used
+ * to invite you to "abre una cuenta" like a bank; somebody who signs up and only then
+ * works out that it is a portfolio piece has been misled by omission.
  */
 export function LandingPage() {
   return (
@@ -42,61 +52,36 @@ export function LandingPage() {
       <main className={cn('flex flex-1 flex-col justify-center py-10 md:py-14', gutter)}>
         <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-16">
           <div>
-            <h1 className="type-display max-w-[22ch] text-[clamp(2rem,5.2vw,3.5rem)]">
-              Cada movimiento tiene dos lados.
+            <h1 className="type-display max-w-[24ch] text-[clamp(2rem,5.2vw,3.5rem)]">
+              Tus cuentas, y alguien que las opera contigo.
             </h1>
             <p className="mt-5 max-w-[46ch] text-[1.0625rem] leading-relaxed text-ink-soft">
-              Los saldos no se guardan en una columna: se derivan de un ledger de doble
-              entrada. Por eso un sobregiro no es una validación que se pueda olvidar, y por
-              eso puedes ver el dinero reservado antes de confirmarlo.
+              Mueve dinero entre tus cuentas, revisa tus movimientos o pídelo en español.
+              Nada se mueve hasta que lo confirmas.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="bg-copper text-white hover:bg-copper/90">
-                <Link to="/registro">Abre una cuenta</Link>
+                <Link to="/entrar">Entrar</Link>
               </Button>
               <Button asChild variant="outline" size="lg">
-                <Link to="/entrar">Ya tengo cuenta</Link>
+                <Link to="/registro">Crear cuenta</Link>
               </Button>
             </div>
           </div>
 
           <HoldDemonstration />
         </div>
-
-        {/* The three claims run the full width under both columns rather than under
-            the prose, so they read as the base the page stands on instead of as a
-            third paragraph. */}
-        <dl className="mt-14 grid gap-6 border-t border-rule pt-6 sm:grid-cols-3 lg:mt-20">
-          {[
-            [
-              'Doble entrada',
-              'Todo cargo tiene su abono, y el ledger lo impone: un sobregiro es imposible por construcción, no por una validación.',
-            ],
-            [
-              'Centavos enteros',
-              'Ningún importe pasa por un float, en ningún punto del sistema.',
-            ],
-            [
-              'Confirmación real',
-              'La IA reserva los fondos y te pregunta. Moverlos lo decides tú, siempre.',
-            ],
-          ].map(([term, detail]) => (
-            <div key={term}>
-              <dt className="type-eyebrow">{term}</dt>
-              <dd className="mt-1.5 max-w-[42ch] text-[0.875rem] leading-snug text-ink-soft">
-                {detail}
-              </dd>
-            </div>
-          ))}
-        </dl>
       </main>
 
+      {/* Said before anybody registers, not after. The technical line sits here rather
+          than above, where it used to be the argument: down here it is evidence for
+          somebody who wants it and out of the way of somebody who does not. */}
       <footer className={cn('border-t border-rule py-5', gutter)}>
-        <p className="text-[0.75rem] text-ink-faint">
-          Saldos y movimientos sobre un ledger de doble entrada. Los importes se manejan en
-          centavos enteros.
-        </p>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[0.75rem]">
+          <p className="font-medium text-ink-soft">Demo · datos ficticios</p>
+          <p className="text-ink-faint">Go · TigerBeetle · React · asistente por MCP</p>
+        </div>
       </footer>
     </div>
   )
@@ -141,12 +126,15 @@ function HoldDemonstration() {
 
       <div className="mt-7 border-t border-rule pt-5">
         <p className="text-[0.875rem] leading-relaxed text-ink-soft">
+          {/* What the number does, not what the architecture is. The version before
+              this one ended by comparing the product to a bank that stores its balance
+              in a column — arguing with an imaginary competitor instead of saying what
+              the visitor is looking at. */}
           {reserved ? (
             <>
               Hay <strong className="font-semibold text-hold">$250.00</strong> retenidos.
-              Salieron de lo que puedes gastar y todavía no han llegado a ninguna parte: el
-              asiento existe, pendiente, y nadie más puede gastar ese dinero. Un banco que
-              guarda el saldo en una columna no tiene forma de decir esto.
+              Salieron de lo que puedes gastar y todavía no han llegado a ninguna parte:
+              esperan a que confirmes, y hasta entonces nadie puede gastarlos.
             </>
           ) : (
             <>

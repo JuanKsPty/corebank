@@ -3,6 +3,7 @@ module github.com/JuanKsPty/corebank/api
 go 1.26.5
 
 require (
+	github.com/anthropics/anthropic-sdk-go v1.61.0
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
@@ -14,7 +15,6 @@ require (
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.61.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
