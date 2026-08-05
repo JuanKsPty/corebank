@@ -8,9 +8,20 @@ import { MovementList } from '@/components/MovementList'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldLabel } from '@/components/ui/field'
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
 import { accountTypeLabel } from '@/lib/format'
 import { useHistory, useMe } from '@/lib/queries'
@@ -124,7 +135,9 @@ export function HistoryPage() {
             </SheetTrigger>
             <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
               <SheetHeader>
-                <SheetTitle className="type-display text-[1.125rem]">Filtrar movimientos</SheetTitle>
+                <SheetTitle className="type-display text-[1.125rem]">
+                  Filtrar movimientos
+                </SheetTitle>
               </SheetHeader>
               <div className="px-4 pb-6">
                 {controls}
@@ -154,7 +167,12 @@ export function HistoryPage() {
       <section className="card hidden p-4 md:block" aria-label="Filtros">
         {controls}
         {filtered && (
-          <Button variant="ghost" size="sm" className="mt-3 text-ink-soft" onClick={clearAll}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-3 text-ink-soft"
+            onClick={clearAll}
+          >
             Limpiar los filtros
           </Button>
         )}
@@ -174,7 +192,9 @@ export function HistoryPage() {
               movements={history.data?.transactions ?? []}
               ownedAccounts={ownedAccounts}
               loading={history.isLoading}
-              emptyTitle={filtered ? 'Ningún movimiento coincide' : 'Aún no tienes movimientos'}
+              emptyTitle={
+                filtered ? 'Ningún movimiento coincide' : 'Aún no tienes movimientos'
+              }
               emptyBody={
                 filtered
                   ? 'Prueba con un rango de fechas más amplio o quita algún filtro.'

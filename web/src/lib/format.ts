@@ -39,7 +39,11 @@ export function moneyParts(amount: Amount | number): { whole: string; cents: str
   return { whole: formatted.slice(0, separator), cents: formatted.slice(separator) }
 }
 
-const dateFormat = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short', year: 'numeric' })
+const dateFormat = new Intl.DateTimeFormat('es', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+})
 const dayMonthFormat = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short' })
 const monthNameFormat = new Intl.DateTimeFormat('es', { month: 'long' })
 

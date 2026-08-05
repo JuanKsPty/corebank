@@ -178,7 +178,9 @@ function OpenAccountDialog({ held }: { held: number }) {
 
       <DialogContent className="sm:max-w-[26rem]">
         <DialogHeader>
-          <DialogTitle className="type-display text-[1.25rem]">Abre otra cuenta</DialogTitle>
+          <DialogTitle className="type-display text-[1.25rem]">
+            Abre otra cuenta
+          </DialogTitle>
           <DialogDescription>
             Se abre vacía y al instante. Ya tienes{' '}
             {held === 1 ? 'una cuenta' : `${held} cuentas`}.

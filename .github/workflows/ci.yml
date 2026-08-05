@@ -1,0 +1,180 @@
+# Checks that run on every pull request and on main.
+#
+# There is deliberately no deploy job here, and no Dokploy token in this
+# repository's secrets. Dokploy is connected to this repository through a GitHub
+# App and deploys on a push to main by itself; the gate lives on the *merge*
+# instead, as a branch protection rule requiring these checks. That means main can
+# only ever contain commits that passed, so deploying every commit on main is safe
+# by construction rather than by a pipeline remembering to check first — and there
+# is one less credential to leak.
+#
+# Nothing here needs a database or a ledger. The one test that wants TigerBeetle
+# skips itself when it cannot reach one, so the whole suite runs on a bare runner.
+
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A second push to the same branch makes the first one's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # ubuntu-latest, and not a slimmer image: the TigerBeetle Go client links a
+      # precompiled native library that ships for glibc only, so this cannot be
+      # built on Alpine and cannot be built without cgo.
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: gofmt
+        working-directory: api
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would change these files:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: api
+        run: go vet ./...
+
+      # Catches a dependency that is imported but recorded as indirect, or recorded
+      # and no longer imported. The Anthropic SDK was misfiled this way for a while:
+      # directly imported, listed as indirect, and nothing said so.
+      - name: go.mod is tidy
+        working-directory: api
+        run: go mod tidy -diff
+
+      - name: build
+        working-directory: api
+        env:
+          CGO_ENABLED: 1
+        run: go build ./...
+
+      # -race because the assistant's spend ceiling is guarded by atomics and
+      # reached from concurrent requests. A ceiling that holds only when requests
+      # arrive one at a time is not a ceiling, and its test spawns twenty
+      # goroutines to say so.
+      - name: test
+        working-directory: api
+        env:
+          CGO_ENABLED: 1
+        run: go test -race ./...
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `npm ci` and not `npm install`: it installs exactly the lockfile and fails
+      # if package.json and the lock disagree, which is the difference between
+      # checking this commit and checking whatever npm resolved today.
+      - name: install
+        working-directory: web
+        run: npm ci
+
+      # Prettier is a pinned devDependency with its options in .prettierrc, so this
+      # check means the same thing here as it does on a laptop. It used to be a set
+      # of flags typed from memory, which is how the whole project once got
+      # reformatted to the opposite style.
+      - name: format
+        working-directory: web
+        run: npm run format:check
+
+      - name: typecheck
+        working-directory: web
+        run: npm run typecheck
+
+      - name: build
+        working-directory: web
+        run: npm run build
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The repository is public and the deployment holds a real, paid API key. A
+      # key committed here would be scraped and drained long before anybody noticed
+      # it in a diff, so this looks for one on every push. Secrets belong in the
+      # deployment's variables and nowhere else.
+      #
+      # The length floor is what makes this usable rather than merely noisy. A real
+      # key is `sk-ant-` followed by around a hundred characters; documentation and
+      # test fixtures write short obvious placeholders like `sk-ant-invalida`. At a
+      # floor of 8 this check flagged this repository's own README, which is how a
+      # check earns a `-- ':!README.md'` exclusion and turns into a blind spot over
+      # exactly the file most likely to carry a pasted key. Forty admits no real key
+      # and no placeholder anybody would write.
+      - name: no API keys committed
+        run: |
+          if git grep -nI -E 'sk-ant-[A-Za-z0-9_-]{40,}' -- . ':!.github/workflows/ci.yml'; then
+            echo "::error::an Anthropic API key appears in a tracked file"
+            exit 1
+          fi
+          echo "no API keys found in tracked files"
+
+      # An .env is how the key reaches a container locally, so it must never be
+      # tracked. .gitignore covers it; this checks that the ignore rule was not
+      # bypassed with `git add -f`.
+      - name: no .env committed
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "::error::.env is tracked; it holds secrets and must not be"
+            exit 1
+          fi
+          echo ".env is not tracked"
+
+  images:
+    name: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Built but not pushed. The deployment builds these same two Dockerfiles on
+      # its own host, so a change that breaks a build should fail in the pull
+      # request rather than halfway through a deploy.
+      - name: api image
+        uses: docker/build-push-action@v6
+        with:
+          context: api
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: web image
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max

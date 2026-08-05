@@ -104,7 +104,10 @@ function AssistantColumn() {
       aria-label="Asistente"
       className="sticky top-14 mb-8 mt-6 hidden h-[calc(100dvh-7rem)] w-88 shrink-0 xl:flex 2xl:w-96"
     >
-      <AssistantPanel className="card w-full overflow-hidden" onClose={() => setDocked(false)} />
+      <AssistantPanel
+        className="card w-full overflow-hidden"
+        onClose={() => setDocked(false)}
+      />
     </aside>
   )
 }
@@ -142,8 +145,8 @@ function Footer() {
         )}
       >
         <p>
-          Saldos y movimientos sobre un ledger de doble entrada. Los importes se manejan
-          en centavos enteros.
+          Saldos y movimientos sobre un ledger de doble entrada. Los importes se manejan en
+          centavos enteros.
         </p>
         <p className="type-figure ml-auto">USD</p>
       </div>

@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/JuanKsPty/corebank/api/internal/money"
 )
 
 // Config is the whole configuration of the API process.
@@ -72,6 +74,22 @@ type AIConfig struct {
 	HoldTTL time.Duration
 	// MaxToolTurns bounds the agentic loop so a confused model cannot spin.
 	MaxToolTurns int
+
+	// The three spend ceilings, in micro-dollars. Micro rather than cents because
+	// one call can cost a fraction of a cent, and a ceiling that cannot represent
+	// the thing it counts is not a ceiling.
+	//
+	// They exist because this deployment is public, registration is open and the
+	// test credentials are published: without them, the budget is whatever a
+	// stranger decides to spend. Zero disables the assistant's use of the API
+	// entirely, which is a supported state — the rule-based engine answers.
+	//
+	// BudgetMicros is the lifetime ceiling and the one that matters.
+	BudgetMicros int64
+	// DailyBudgetMicros keeps one bad day from consuming the lifetime budget.
+	DailyBudgetMicros int64
+	// UserDailyBudgetMicros keeps one account from consuming everyone else's share.
+	UserDailyBudgetMicros int64
 }
 
 // Enabled reports whether the chat assistant can reach a model. When false the
@@ -123,10 +141,17 @@ func Load() (Config, error) {
 			LoginRateLimit: number("LOGIN_RATE_LIMIT", 10, fail),
 		},
 		AI: AIConfig{
-			APIKey:       str("ANTHROPIC_API_KEY", ""),
-			Model:        str("ANTHROPIC_MODEL", "claude-sonnet-5"),
-			HoldTTL:      duration("CONFIRMATION_TTL", 2*time.Minute, fail),
-			MaxToolTurns: number("AI_MAX_TOOL_TURNS", 8, fail),
+			APIKey:  str("ANTHROPIC_API_KEY", ""),
+			Model:   str("ANTHROPIC_MODEL", "claude-sonnet-5"),
+			HoldTTL: duration("CONFIRMATION_TTL", 2*time.Minute, fail),
+			// Four, not eight. A banking question needs one or two rounds of
+			// tools; the rest of the allowance only ever bought a confused model
+			// more chances to keep asking, and each round re-sends the whole
+			// conversation.
+			MaxToolTurns:          number("AI_MAX_TOOL_TURNS", 4, fail),
+			BudgetMicros:          dollars("AI_BUDGET_USD", "4.00", fail),
+			DailyBudgetMicros:     dollars("AI_DAILY_BUDGET_USD", "1.00", fail),
+			UserDailyBudgetMicros: dollars("AI_USER_DAILY_BUDGET_USD", "0.30", fail),
 		},
 		Log: LogConfig{
 			Level:  oneOf("LOG_LEVEL", "info", "debug", "info", "warn", "error"),
@@ -239,6 +264,32 @@ func number(key string, def int, fail func(string, ...any)) int {
 		return def
 	}
 	return n
+}
+
+// microsPerCent scales a cent into the micro-dollars the budget counts in.
+const microsPerCent = 10_000
+
+// dollars reads a spend ceiling written the way a person writes money ("4.00")
+// and returns it in micro-dollars.
+//
+// It goes through money.Parse rather than strconv.ParseFloat for the same reason
+// every other amount in this system does: parsing "0.30" as a float and scaling it
+// gives 299999.99999999994 micro-dollars, and a ceiling that is a hair under what
+// was asked for is a ceiling nobody can reason about. Parse works on the decimal
+// text and refuses anything more precise than a cent.
+func dollars(key, def string, fail func(string, ...any)) int64 {
+	raw := str(key, def)
+
+	cents, err := money.Parse(raw)
+	if err != nil {
+		fail("%s must be an amount in dollars such as 4.00, got %q: %v", key, raw, err)
+		return 0
+	}
+	if cents < 0 {
+		fail("%s must not be negative, got %q", key, raw)
+		return 0
+	}
+	return int64(cents) * microsPerCent
 }
 
 func duration(key string, def time.Duration, fail func(string, ...any)) time.Duration {

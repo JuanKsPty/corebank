@@ -36,7 +36,9 @@ export function MobileAppBar() {
   return (
     <header className={cn('sticky top-0 z-30 bg-ink text-paper md:hidden')}>
       {detail ? (
-        <div className={cn('grid grid-cols-[2.5rem_1fr_2.5rem] items-center py-2.5', gutter)}>
+        <div
+          className={cn('grid grid-cols-[2.5rem_1fr_2.5rem] items-center py-2.5', gutter)}
+        >
           <button
             type="button"
             onClick={() => void navigate(-1)}

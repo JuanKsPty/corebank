@@ -162,7 +162,11 @@ export async function* streamChat(
   message: string,
   signal?: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
-  const response = await rawRequest('/api/chat', { method: 'POST', body: { message }, signal })
+  const response = await rawRequest('/api/chat', {
+    method: 'POST',
+    body: { message },
+    signal,
+  })
 
   if (response.status === 401) {
     if (await refreshSession()) {

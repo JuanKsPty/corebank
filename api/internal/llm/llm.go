@@ -82,9 +82,37 @@ type Request struct {
 type Reply struct {
 	Text      string
 	ToolCalls []ToolCall
-	// Usage is reported when the provider knows it, for the log.
+	// Usage is reported when the provider knows it. It is not only for the log:
+	// what the budget is charged is computed from these, so the four counts have to
+	// be kept apart. Cached input is billed at a different rate from fresh input —
+	// writing the cache costs more than sending the tokens plainly, reading it costs
+	// a fraction — so folding them into InputTokens would misprice every call after
+	// the first.
 	InputTokens  int
 	OutputTokens int
+	// CacheWriteTokens were stored in the cache by this call.
+	CacheWriteTokens int
+	// CacheReadTokens were served from the cache instead of being processed again.
+	// Non-zero here is the only proof that caching is actually working.
+	CacheReadTokens int
+}
+
+// Usage is what one call consumed, for pricing and for the record.
+type Usage struct {
+	InputTokens      int
+	OutputTokens     int
+	CacheWriteTokens int
+	CacheReadTokens  int
+}
+
+// Usage returns what the call that produced this reply consumed.
+func (r Reply) Usage() Usage {
+	return Usage{
+		InputTokens:      r.InputTokens,
+		OutputTokens:     r.OutputTokens,
+		CacheWriteTokens: r.CacheWriteTokens,
+		CacheReadTokens:  r.CacheReadTokens,
+	}
 }
 
 // WantsTools reports whether the loop should run tools and come back.
@@ -102,6 +130,15 @@ type Provider interface {
 }
 
 // ErrUnavailable means the provider cannot answer right now — an unreachable API,
-// a rejected key, a rate limit. The chat reports it as a temporary failure rather
-// than a bug.
+// an overloaded one, a rate limit. The chat reports it as a temporary failure and
+// the next message tries again.
 var ErrUnavailable = errors.New("llm: provider unavailable")
+
+// ErrPermanent means the provider will not work again until somebody changes
+// something: the key is rejected, or the account has no credit left.
+//
+// It is separated from ErrUnavailable because the two deserve opposite handling.
+// Retrying a rate limit is right; retrying an exhausted balance burns a round trip
+// on every message forever and tells the customer to "try again in a moment" when
+// no amount of waiting will help. A caller that sees this should stop asking.
+var ErrPermanent = errors.New("llm: provider permanently unavailable")

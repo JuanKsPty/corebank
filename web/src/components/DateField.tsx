@@ -50,7 +50,9 @@ const LazyCalendar = lazy(async () => {
     import('date-fns/locale/es'),
   ])
   return {
-    default: (props: CalendarPickerProps) => <Calendar mode="single" locale={es} {...props} />,
+    default: (props: CalendarPickerProps) => (
+      <Calendar mode="single" locale={es} {...props} />
+    ),
   }
 })
 

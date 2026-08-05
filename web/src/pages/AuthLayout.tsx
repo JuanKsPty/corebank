@@ -68,8 +68,16 @@ export function DemoCredentials({
   onUse: (email: string, password: string) => void
 }) {
   const accounts = [
-    { email: 'ihernandez@email.com', password: 'Isabel2024!', note: '1 cuenta · $32,354.53' },
-    { email: 'andres.perez368@mail.com', password: 'Andrés2024!', note: '3 cuentas · $86,047.62' },
+    {
+      email: 'ihernandez@email.com',
+      password: 'Isabel2024!',
+      note: '1 cuenta · $32,354.53',
+    },
+    {
+      email: 'andres.perez368@mail.com',
+      password: 'Andrés2024!',
+      note: '3 cuentas · $86,047.62',
+    },
   ]
 
   return (

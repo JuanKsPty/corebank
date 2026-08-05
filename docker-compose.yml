@@ -130,6 +130,17 @@ services:
       # full and the assistant answers from its rule-based fallback.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      # What the assistant may spend, in dollars. The key above is real money, so
+      # these are a hard ceiling and not a suggestion: the API reserves a call's
+      # estimated cost before making it and refuses to start one that would cross a
+      # ceiling, then answers from the rule-based engine and says so in the
+      # interface. Zero disables spending entirely, which is a supported state.
+      AI_BUDGET_USD: ${AI_BUDGET_USD:-4.00}
+      AI_DAILY_BUDGET_USD: ${AI_DAILY_BUDGET_USD:-1.00}
+      AI_USER_DAILY_BUDGET_USD: ${AI_USER_DAILY_BUDGET_USD:-0.30}
+      # Rounds of tools per message. Each round re-sends the conversation, so this
+      # is a cost ceiling as much as a safety one.
+      AI_MAX_TOOL_TURNS: ${AI_MAX_TOOL_TURNS:-4}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
