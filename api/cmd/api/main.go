@@ -109,7 +109,7 @@ func run() error {
 	// The assistant is built from whichever engine is available, and which one it
 	// is stays visible: without an API key the rule-based fallback drives the same
 	// MCP tools, and the interface labels it rather than passing it off as an AI.
-	provider := selectProvider(cfg.AI, logger)
+	provider := selectProvider(db, cfg.AI, logger)
 	chatSvc := chat.NewService(db, mcpserver.Deps{
 		Accounts:     accountsSvc,
 		Transactions: txSvc,
@@ -212,7 +212,13 @@ func connectLedger(ctx context.Context, cfg config.Config, logger *slog.Logger) 
 }
 
 // chatMessagesPerMinute is the per-address budget for chat messages.
-const chatMessagesPerMinute = 20
+//
+// Six, not twenty. Twenty was chosen when a message cost nothing but database
+// round trips; with a real model behind it, this number is the rate at which a
+// stranger can spend the deployment's money, and each message can drive several
+// API calls. Six per minute is faster than anybody types and slow enough that the
+// spend ceiling is reached by usage rather than by a script.
+const chatMessagesPerMinute = 6
 
 // selectProvider picks the engine behind the assistant.
 //
@@ -221,9 +227,18 @@ const chatMessagesPerMinute = 20
 // application where one feature crashes the page is worse than one where it is
 // honestly labelled. So the fallback drives the same MCP tools through the same
 // loop, and the interface says which engine answered.
-func selectProvider(cfg config.AIConfig, logger *slog.Logger) llm.Provider {
+//
+// When a key *is* present, the model never gets called directly. It goes behind the
+// spend ceilings, because this deployment is public and the key on it is somebody's
+// actual money: registration is open and the test credentials are in the README, so
+// without a ceiling the budget is whatever a stranger decides to spend. The wrapper
+// also means the assistant degrades to rules when the money or the key runs out,
+// rather than telling customers to "try again in a moment" forever.
+func selectProvider(db *store.DB, cfg config.AIConfig, logger *slog.Logger) llm.Provider {
+	fallback := chat.NewFallback()
+
 	if !cfg.Enabled() {
-		return chat.NewFallback()
+		return fallback
 	}
 
 	provider, err := llm.NewAnthropic(cfg.APIKey, cfg.Model)
@@ -231,8 +246,26 @@ func selectProvider(cfg config.AIConfig, logger *slog.Logger) llm.Provider {
 		// A key that is present but unusable — empty after trimming, say. Falling
 		// back keeps the application working and says why.
 		logger.Error("the AI provider could not be built; falling back to local rules", "error", err)
-		return chat.NewFallback()
+		return fallback
 	}
-	logger.Info("AI assistant enabled", "model", cfg.Model)
-	return provider
+
+	caps := chat.Caps{
+		Total:     cfg.BudgetMicros,
+		Daily:     cfg.DailyBudgetMicros,
+		UserDaily: cfg.UserDailyBudgetMicros,
+	}
+	if caps.Total == 0 {
+		// A key with no allowance to spend it. Worth saying out loud, because the
+		// symptom — an assistant that answers from rules despite a configured key —
+		// otherwise looks like the key being broken.
+		logger.Warn("an API key is configured but AI_BUDGET_USD is zero; the assistant will answer from rules")
+	}
+	logger.Info("AI assistant enabled",
+		"model", cfg.Model,
+		"budget_micros", caps.Total,
+		"daily_micros", caps.Daily,
+		"user_daily_micros", caps.UserDaily,
+		"max_tool_turns", cfg.MaxToolTurns)
+
+	return chat.NewBudgeted(provider, fallback, chat.NewKeeper(db), caps)
 }

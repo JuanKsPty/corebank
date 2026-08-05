@@ -39,6 +39,18 @@ services:
       # interface says which engine is active.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      # The spend ceilings, in dollars, set in the deployment's variables.
+      #
+      # This deployment is public, registration is open and the test credentials are
+      # in the README, so the key above is reachable by anybody who opens the page.
+      # The API reserves a call's estimated cost before making it and refuses to start
+      # one that would cross a ceiling — it then answers from the rule-based engine
+      # and the interface says the budget is what ran out, rather than claiming the
+      # assistant is briefly unavailable.
+      AI_BUDGET_USD: ${AI_BUDGET_USD:-4.00}
+      AI_DAILY_BUDGET_USD: ${AI_DAILY_BUDGET_USD:-1.00}
+      AI_USER_DAILY_BUDGET_USD: ${AI_USER_DAILY_BUDGET_USD:-0.30}
+      AI_MAX_TOOL_TURNS: ${AI_MAX_TOOL_TURNS:-4}
     # No published ports. Traefik reaches this over the shared network.
     networks:
       - dokploy-network

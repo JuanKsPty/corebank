@@ -26,9 +26,12 @@ import (
 // historyTurns is how much of the conversation is replayed to the model.
 //
 // Bounded because the whole history is sent on every message: unbounded, it would
-// grow until it cost more than it helped and then be rejected outright. Twenty
-// turns is several minutes of banking conversation.
-const historyTurns = 20
+// grow until it cost more than it helped and then be rejected outright. It is also
+// the term that grows fastest — every message pays for every turn before it — so it
+// was cut from twenty to ten. Ten turns is still more banking context than any
+// single request needs, and a conversation that genuinely needs more has usually
+// finished one errand and started another.
+const historyTurns = 10
 
 // Service runs the assistant.
 type Service struct {
@@ -45,6 +48,25 @@ func NewService(db *store.DB, deps mcpserver.Deps, provider llm.Provider, maxTur
 
 // Provider reports which engine is answering, so the interface can label it.
 func (s *Service) Provider() llm.Provider { return s.provider }
+
+// ProviderState reports which engine is answering and why.
+//
+// Asked after every exchange, not only on load: the engine can change mid-session
+// when a spend ceiling is reached or the model stops answering, and a label that
+// only updates on a page refresh would be telling the customer their reply came
+// from a model that did not write it.
+//
+// A provider that cannot explain itself — the bare fallback — is described from what
+// it does expose, which is the honest reading: no key was configured.
+func (s *Service) ProviderState() ProviderState {
+	if p, ok := s.provider.(stateful); ok {
+		return p.State()
+	}
+	if s.provider.IsAI() {
+		return ProviderState{Name: s.provider.Name(), IsAI: true, Engine: EngineAI}
+	}
+	return ProviderState{Name: s.provider.Name(), IsAI: false, Engine: EngineUnconfigured}
+}
 
 // Event is something that happened while producing a reply. The handler forwards
 // these to the browser as they occur, so a slow tool call is visible progress
@@ -63,6 +85,9 @@ type Event struct {
 	// Code and Message describe a failure, for EventError.
 	Code    string
 	Message string
+	// Provider is set on EventDone: which engine actually answered, which can have
+	// changed during this very exchange.
+	Provider *ProviderState
 }
 
 type EventKind string

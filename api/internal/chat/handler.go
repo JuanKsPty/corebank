@@ -130,7 +130,13 @@ func (h *Handler) send(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.Reply(ctx, userID, customer.FullName, message, emit); err != nil {
 		emit(errorEvent(err))
 	}
-	emit(Event{Kind: EventDone})
+
+	// The engine that answered rides out on the closing event. It can differ from the
+	// one the interface was told about on load — a spend ceiling reached, a key that
+	// stopped working — and a label that only refreshes with the page would be
+	// attributing this reply to a model that did not write it.
+	state := h.svc.ProviderState()
+	emit(Event{Kind: EventDone, Provider: &state})
 }
 
 func (h *Handler) writeStreamHeaders(w http.ResponseWriter) {
@@ -180,6 +186,7 @@ type eventPayload struct {
 	Confirmation *confirmationCard `json:"confirmation,omitempty"`
 	Code         string            `json:"code,omitempty"`
 	Message      string            `json:"message,omitempty"`
+	Provider     *providerView     `json:"provider,omitempty"`
 }
 
 // confirmationCard is everything the interface needs to render the card and act on
@@ -204,6 +211,10 @@ func writeEvent(w http.ResponseWriter, event Event) error {
 		Failed:  event.Failed,
 		Code:    event.Code,
 		Message: event.Message,
+	}
+	if event.Provider != nil {
+		view := toProviderView(*event.Provider)
+		payload.Provider = &view
 	}
 	if event.Confirmation != nil {
 		payload.Confirmation = &confirmationCard{
@@ -240,6 +251,20 @@ type historyResponse struct {
 type providerView struct {
 	Name string `json:"name"`
 	IsAI bool   `json:"is_ai"`
+	// Engine says *why* a rule-based reply is rule-based, which the interface needs
+	// in order to be truthful. "No AI configured" and "the demo's AI budget ran out"
+	// look identical from is_ai alone, and they are not the same message: the first
+	// is how the project runs without credentials, the second means the money is
+	// gone. One of them is worth telling somebody about.
+	Engine string `json:"engine"`
+}
+
+func toProviderView(state ProviderState) providerView {
+	return providerView{
+		Name:   state.Name,
+		IsAI:   state.IsAI,
+		Engine: string(state.Engine),
+	}
 }
 
 // messageView is a stored turn, rendered for display.
@@ -262,10 +287,9 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := h.svc.Provider()
 	out := historyResponse{
 		Messages: make([]messageView, 0, len(stored)),
-		Provider: providerView{Name: provider.Name(), IsAI: provider.IsAI()},
+		Provider: toProviderView(h.svc.ProviderState()),
 	}
 
 	for _, row := range stored {
