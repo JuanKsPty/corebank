@@ -69,7 +69,10 @@ const maxAccountsPerCustomer = 6
 // PostgreSQL row is inert — nothing references it, it holds nothing, and
 // creating it again is a no-op. A PostgreSQL row with no ledger account is a
 // broken account whose balance cannot be read. So the reversible half goes last.
-func (s *Service) Open(ctx context.Context, q *store.Queries, userID uuid.UUID, kind ledger.AccountKind) (store.Account, error) {
+//
+// The alias is taken already normalised: this is the low-level half that registration
+// shares, and validating the same string twice invites the two checks to disagree.
+func (s *Service) Open(ctx context.Context, q *store.Queries, userID uuid.UUID, kind ledger.AccountKind, alias string) (store.Account, error) {
 	number, err := s.allocateNumber(ctx, q)
 	if err != nil {
 		return store.Account{}, err
@@ -86,6 +89,7 @@ func (s *Service) Open(ctx context.Context, q *store.Queries, userID uuid.UUID, 
 		Number:   number,
 		LedgerID: ledgerID,
 		Kind:     kind,
+		Alias:    alias,
 		Currency: money.CurrencyUSD,
 	})
 	if err != nil {
@@ -184,6 +188,40 @@ func (s *Service) Resolve(ctx context.Context, userID uuid.UUID, number string) 
 	return row, nil
 }
 
+// Rename sets what a customer calls one of their accounts.
+//
+// Ownership is checked by Resolve, the same function every other operation on a
+// customer's own account goes through, so a rename cannot reach an account the caller
+// does not hold and the rule lives in one place.
+//
+// An empty alias is a valid request: it is how a name is removed. There is nothing to
+// undo and nothing in the ledger to touch — this is a label on a row of metadata, and
+// no amount of renaming can move money.
+func (s *Service) Rename(ctx context.Context, userID uuid.UUID, number, rawAlias string) (Account, error) {
+	alias, err := normaliseAlias(rawAlias)
+	if err != nil {
+		return Account{}, err
+	}
+
+	row, err := s.Resolve(ctx, userID, number)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := s.db.Q().UpdateAccountAlias(ctx, row.Number, alias); err != nil {
+		return Account{}, err
+	}
+	row.Alias = alias
+
+	// The balance comes back with it, so the caller can render the account without a
+	// second request and the response is the same shape every other account endpoint
+	// returns.
+	withBalance, err := s.withBalances(ctx, []store.Account{row})
+	if err != nil {
+		return Account{}, err
+	}
+	return withBalance[0], nil
+}
+
 // Lookup finds any account by number without an ownership check, for validating
 // a transfer's destination.
 func (s *Service) Lookup(ctx context.Context, number string) (store.Account, error) {
@@ -253,7 +291,12 @@ func (s *Service) withBalances(ctx context.Context, rows []store.Account) ([]Acc
 // the authority; when the constraint speaks, the statement has already aborted the
 // transaction, so the only way forward is a new one. Registration handles that by
 // retrying the whole registration. Here the whole thing is just this.
-func (s *Service) OpenFor(ctx context.Context, userID uuid.UUID, kind ledger.AccountKind) (Account, error) {
+func (s *Service) OpenFor(ctx context.Context, userID uuid.UUID, kind ledger.AccountKind, rawAlias string) (Account, error) {
+	alias, err := normaliseAlias(rawAlias)
+	if err != nil {
+		return Account{}, err
+	}
+
 	held, err := s.db.Q().AccountsByUser(ctx, userID)
 	if err != nil {
 		return Account{}, err
@@ -266,7 +309,7 @@ func (s *Service) OpenFor(ctx context.Context, userID uuid.UUID, kind ledger.Acc
 	for attempt := 0; attempt < numberAttempts; attempt++ {
 		err = s.db.InTx(ctx, func(q *store.Queries) error {
 			var openErr error
-			opened, openErr = s.Open(ctx, q, userID, kind)
+			opened, openErr = s.Open(ctx, q, userID, kind, alias)
 			return openErr
 		})
 		if err == nil {

@@ -366,6 +366,7 @@ func renderResult(tool, content string) string {
 			Accounts []struct {
 				AccountNumber string `json:"account_number"`
 				AccountType   string `json:"account_type"`
+				Alias         string `json:"alias"`
 				Available     string `json:"available"`
 				Held          string `json:"held"`
 			} `json:"accounts"`
@@ -376,7 +377,16 @@ func renderResult(tool, content string) string {
 		}
 		lines := []string{fmt.Sprintf("Tienes $%s disponibles en total:", grouped(out.TotalAvailable))}
 		for _, a := range out.Accounts {
-			line := fmt.Sprintf("• %s (%s): $%s", a.AccountNumber, spanishKind(a.AccountType), grouped(a.Available))
+			// The name the customer gave the account, when they gave it one. Without
+			// this the rule-based engine would answer "cuánto tengo" with a list of
+			// three identical "(ahorros)" entries — the exact problem naming accounts
+			// exists to solve, reintroduced by the one engine that still has to work
+			// when there is no API key.
+			label := spanishKind(a.AccountType)
+			if a.Alias != "" {
+				label = a.Alias
+			}
+			line := fmt.Sprintf("• %s (%s): $%s", a.AccountNumber, label, grouped(a.Available))
 			if a.Held != "0.00" && a.Held != "" {
 				line += fmt.Sprintf(" — $%s retenidos por una operación sin confirmar", grouped(a.Held))
 			}
