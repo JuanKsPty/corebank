@@ -126,10 +126,20 @@ export interface ConfirmationCard {
   expires_at: string
 }
 
+/**
+ * Why a rule-based reply is rule-based.
+ *
+ * `is_ai` alone cannot tell these apart, and they are not the same message. Running
+ * without a key is how the project works on a machine with no credentials; running
+ * out of budget means the demo's money is gone. One of those is worth explaining.
+ */
+export type ChatEngine = 'ai' | 'unconfigured' | 'budget_exhausted' | 'degraded'
+
 export interface ChatProvider {
   name: string
   /** False for the rule-based fallback, which the interface labels as such. */
   is_ai: boolean
+  engine: ChatEngine
 }
 
 export interface ChatMessage {
@@ -164,4 +174,8 @@ export type ChatEvent =
   | { kind: 'tool_result'; tool: string; failed?: boolean }
   | { kind: 'confirmation'; confirmation: ConfirmationCard }
   | { kind: 'error'; code: string; message: string }
-  | { kind: 'done' }
+  // The closing event carries which engine actually answered. It can differ from
+  // what the page was told on load — a spend ceiling reached mid-session, a key
+  // that stopped working — and a label that only refreshes with the page would
+  // credit this reply to a model that did not write it.
+  | { kind: 'done'; provider?: ChatProvider }

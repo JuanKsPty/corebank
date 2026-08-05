@@ -1,5 +1,7 @@
 import { ArrowUpIcon, PanelRightCloseIcon, SparklesIcon } from 'lucide-react'
 
+import type { ChatEngine, ChatProvider } from '@/api/types'
+
 import { ConfirmationCard } from '@/components/ConfirmationCard'
 import { Badge } from '@/components/ui/badge'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
@@ -75,22 +77,7 @@ export function AssistantPanel({
       <header className="flex items-center gap-3 border-b border-rule px-4 py-3">
         <div className="min-w-0 flex-1">
           <h2 className="type-display text-[0.9375rem]">Asistente</h2>
-          {provider && (
-            <p className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-ink-faint">
-              {/* Which engine is answering is stated, not implied. A rule-based
-                  fallback presented as an AI would be a lie about the product. */}
-              <span
-                aria-hidden="true"
-                className={cn(
-                  'size-1.5 rounded-full',
-                  provider.is_ai ? 'bg-credit' : 'bg-hold',
-                )}
-              />
-              {provider.is_ai
-                ? `Modelo ${provider.name}`
-                : `Sin IA configurada · ${provider.name}`}
-            </p>
-          )}
+          {provider && <EngineLabel provider={provider} />}
         </div>
         {turns.length > 0 && (
           <Button
@@ -128,7 +115,7 @@ export function AssistantPanel({
               {loadingHistory ? (
                 <ChatSkeleton />
               ) : turns.length === 0 ? (
-                <Opening onPick={(text) => send(text)} isAI={provider?.is_ai ?? false} />
+                <Opening onPick={(text) => send(text)} engine={provider?.engine ?? 'ai'} />
               ) : (
                 turns.map((turn) => (
                   <MessageScrollerItem key={turn.id} messageId={turn.id}>
@@ -171,6 +158,17 @@ export function AssistantPanel({
         }}
         className="border-t border-rule p-3"
       >
+        {/* Only when the budget is what ran out, and only above the composer — the
+            moment somebody is about to type is the moment it matters. The header
+            label says the same thing, but a conversation that was fluent a minute ago
+            and is suddenly terse needs the reason where the next message is written,
+            not in a caption. */}
+        {provider?.engine === 'budget_exhausted' && turns.length > 0 && (
+          <p className="mb-2 text-[0.75rem] leading-snug text-hold-text">
+            Se agotó el presupuesto de IA de esta demo. Sigo funcionando con reglas: puedo
+            consultar saldos y movimientos, y preparar movimientos para que los confirmes.
+          </p>
+        )}
         <label htmlFor="chat-input" className="sr-only">
           Escribe tu petición
         </label>
@@ -334,6 +332,49 @@ function Working({ tool }: { tool: string | null }) {
 }
 
 /**
+ * Says which engine is answering, and when it is not the model, why.
+ *
+ * Four states rather than two. `is_ai` alone collapses three different situations
+ * into one "no AI" that explains nothing: a project running without credentials,
+ * a demo whose shared budget has been spent, and a model that is briefly
+ * unreachable. The first is the normal way this repository runs on a fresh clone;
+ * the second means somebody's money is gone and no amount of retrying will bring the
+ * assistant back; the third clears by itself. Telling them apart is the difference
+ * between a label and an excuse.
+ */
+function EngineLabel({ provider }: { provider: ChatProvider }) {
+  const { tone, text } = describeEngine(provider)
+
+  return (
+    <p className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-ink-faint">
+      <span aria-hidden="true" className={cn('size-1.5 shrink-0 rounded-full', tone)} />
+      <span className="truncate" title={text}>
+        {text}
+      </span>
+    </p>
+  )
+}
+
+function describeEngine(provider: ChatProvider): { tone: string; text: string } {
+  switch (provider.engine) {
+    case 'ai':
+      return { tone: 'bg-credit', text: `Modelo ${provider.name}` }
+
+    case 'budget_exhausted':
+      // The honest version. "Unavailable, try again in a moment" would be a lie:
+      // waiting does not refill a budget.
+      return { tone: 'bg-hold', text: 'Presupuesto de IA agotado · respondo con reglas' }
+
+    case 'degraded':
+      return { tone: 'bg-hold', text: 'IA no disponible ahora · respondo con reglas' }
+
+    case 'unconfigured':
+    default:
+      return { tone: 'bg-hold', text: 'Sin IA configurada · respondo con reglas' }
+  }
+}
+
+/**
  * The first thing in an empty conversation.
  *
  * The previous version reused the generic empty state, whose illustration is a ruled
@@ -342,7 +383,13 @@ function Working({ tool }: { tool: string | null }) {
  * are the point of this screen, so they are the primary action rather than a footnote
  * under an apology, and tapping one sends it instead of merely typing it for you.
  */
-function Opening({ onPick, isAI }: { onPick: (text: string) => void; isAI: boolean }) {
+function Opening({
+  onPick,
+  engine,
+}: {
+  onPick: (text: string) => void
+  engine: ChatEngine
+}) {
   const suggestions = [
     '¿Cuánto dinero tengo?',
     'Muéstrame mis últimos 5 movimientos',
@@ -362,7 +409,11 @@ function Opening({ onPick, isAI }: { onPick: (text: string) => void; isAI: boole
         <EmptyDescription className="text-[0.8125rem]">
           Consulto saldos y movimientos, registro ingresos, y preparo retiros y
           transferencias para que los confirmes.
-          {!isAI && ' Sin clave de IA entiendo frases concretas como estas.'}
+          {/* Why the phrasing has to be concrete, when it does. Somebody whose
+              sentence was not understood deserves to know it was the engine and not
+              their wording. */}
+          {engine !== 'ai' &&
+            ' Ahora respondo con reglas, así que entiendo frases concretas como estas.'}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>

@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, streamChat } from '@/api/client'
@@ -126,6 +134,15 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [failure, setFailure] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [docked, setDockedState] = useState(readDocked)
+  /**
+   * The engine reported by the last exchange, which supersedes the one the history
+   * endpoint gave on load.
+   *
+   * The two can disagree by the time somebody has sent a message: the demo's AI
+   * budget is finite and shared, so it can run out mid-session. Keeping the label on
+   * the load-time value would attribute a rule-based reply to a model.
+   */
+  const [liveProvider, setLiveProvider] = useState<ChatProvider | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const hydratedRef = useRef(false)
@@ -154,7 +171,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
     setTurns((previous) => {
       const known = new Set(
-        previous.map((turn) => turn.card?.hold_id).filter((id): id is string => Boolean(id)),
+        previous
+          .map((turn) => turn.card?.hold_id)
+          .filter((id): id is string => Boolean(id)),
       )
       const restored = pendingConfirmations
         .filter((tx) => tx.confirmation && !known.has(tx.confirmation.hold_id))
@@ -200,12 +219,14 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       abortRef.current = controller
 
       const update = (change: (turn: Turn) => Turn) =>
-        setTurns((previous) => previous.map((turn) => (turn.id === turnId ? change(turn) : turn)))
+        setTurns((previous) =>
+          previous.map((turn) => (turn.id === turnId ? change(turn) : turn)),
+        )
 
       void (async () => {
         try {
           for await (const event of streamChat(message, controller.signal)) {
-            applyEvent(event, update, setActiveTool)
+            applyEvent(event, update, setActiveTool, setLiveProvider)
           }
         } catch (error) {
           if (!controller.signal.aborted) {
@@ -258,7 +279,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       send,
       clear,
       clearing: clearMutation.isPending,
-      provider: history.data?.provider,
+      provider: liveProvider ?? history.data?.provider,
       loadingHistory: history.isLoading,
       open,
       setOpen,
@@ -276,6 +297,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       send,
       clear,
       clearMutation.isPending,
+      liveProvider,
       history.data?.provider,
       history.isLoading,
       open,
@@ -293,12 +315,16 @@ function applyEvent(
   event: ChatEvent,
   update: (change: (turn: Turn) => Turn) => void,
   setActiveTool: (tool: string | null) => void,
+  setLiveProvider: (provider: ChatProvider) => void,
 ) {
   switch (event.kind) {
     case 'message':
       // Turns arrive whole rather than token by token, so successive messages in one
       // exchange are joined rather than replacing each other.
-      update((turn) => ({ ...turn, text: turn.text ? `${turn.text}\n\n${event.text}` : event.text }))
+      update((turn) => ({
+        ...turn,
+        text: turn.text ? `${turn.text}\n\n${event.text}` : event.text,
+      }))
       break
 
     case 'tool_call':
@@ -332,6 +358,10 @@ function applyEvent(
 
     case 'done':
       setActiveTool(null)
+      // The engine that actually answered. It can have changed during this very
+      // exchange — a spend ceiling reached, a key that stopped working — so the
+      // label is corrected here rather than waiting for a reload.
+      if (event.provider) setLiveProvider(event.provider)
       break
   }
 }
