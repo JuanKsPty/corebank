@@ -17,7 +17,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { accountTypeLabel, formatDate } from '@/lib/format'
+import { accountLabel, accountTypeAside, formatDate } from '@/lib/format'
 import { useDashboard } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 
@@ -227,11 +227,12 @@ function AccountCard({ account }: { account: Account }) {
       )}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-[0.8125rem] font-medium">
-          {accountTypeLabel(account.account_type)}
+        <p className="min-w-0 truncate text-[0.8125rem] font-medium">
+          {accountLabel(account)}
         </p>
-        <p className="type-figure text-[0.6875rem] text-ink-faint">
+        <p className="type-figure shrink-0 text-[0.6875rem] text-ink-faint">
           ···{account.account_number.slice(-4)}
+          {accountTypeAside(account) && ` · ${accountTypeAside(account)}`}
         </p>
       </div>
 

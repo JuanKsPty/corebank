@@ -5,9 +5,10 @@ Sistema de banca en línea con **ledger contable de doble entrada** sobre
 las cuentas en lenguaje natural a través del
 [Model Context Protocol](https://modelcontextprotocol.io).
 
-**Demo en vivo:** <https://corebank.juank.tech> — entra con las
-[credenciales de prueba](#credenciales-de-prueba), que la pantalla de acceso ofrece
-en un botón.
+**Demo en vivo:** <https://corebank.juank.tech> — el botón «Entrar con la cuenta de
+prueba» de la portada te deja dentro en un clic, con el formulario ya lleno. Las
+[credenciales](#credenciales-de-prueba) también están abajo, y la pantalla de acceso
+ofrece las dos cuentas.
 
 ---
 
@@ -93,6 +94,29 @@ La mayoría de las interfaces bancarias no pueden expresar el del medio, porque
 guardan el saldo en una columna. Aquí el saldo **siempre** se lee de TigerBeetle:
 **Postgres no tiene columna de saldo**, y es deliberado — no existe la posibilidad
 de que dos almacenes discrepen sobre cuánto dinero hay.
+
+### Una cuenta se puede llamar como quiera su dueño
+
+Un número identifica una cuenta; no ayuda a nadie a reconocerla. Sin alias, todas las
+etiquetas salían del tipo —«Ahorros», «Corriente», «Inversión»— y **dos cuentas del
+mismo tipo eran indistinguibles** salvo por los últimos cuatro dígitos. No es un caso
+raro: un cliente puede tener seis cuentas y solo hay tres tipos.
+
+El alias es opcional y va en PostgreSQL, nunca en el ledger, que no guarda texto. Si
+está vacío la interfaz muestra el tipo, y ese respaldo **existe en una sola función**
+(`accountLabel`) porque seis pantallas etiquetan cuentas y la que se olvidara del
+respaldo sería justo la que enseñara dos cuentas idénticas.
+
+Dos detalles que no son cosméticos. El límite de 40 se mide en **caracteres y no en
+bytes**: «Ahorros de mamá» son 15 caracteres y 16 bytes, y un límite en bytes recorta
+los nombres con tilde antes de tiempo. Y se rechazan los caracteres invisibles y los de
+control bidireccional: un alias hecho de espacios de ancho cero se ve en blanco sin
+estar vacío, y `U+202E` invierte cómo se dibuja el texto que le sigue. Una etiqueta de
+cuenta se lee para decidir a dónde va el dinero, así que no puede mostrar algo distinto
+de lo que guarda.
+
+Los alias **no son únicos**, como en un banco real. El número sigue siendo el
+identificador y la interfaz lo muestra siempre al lado.
 
 ### La confirmación de acciones críticas es un paso de servidor
 
@@ -310,8 +334,9 @@ Errores en un formato único: `{"error":{"code":"…","message":"…","fields":{
 | `GET` | `/api/me` | Perfil y cuentas. |
 | `GET` | `/api/dashboard/summary` | Totales, recientes y series para la gráfica. |
 | `GET` | `/api/accounts` | Cuentas del usuario, con saldo leído de TigerBeetle. |
-| `POST` | `/api/accounts` | Abre una cuenta adicional. Máximo 6 por cliente. |
+| `POST` | `/api/accounts` | Abre una cuenta adicional. Máximo 6 por cliente. Acepta un `alias` opcional. |
 | `GET` | `/api/accounts/{number}` | Detalle. |
+| `PATCH` | `/api/accounts/{number}` | Cambia el alias. Vacío lo quita. |
 | `GET` | `/api/accounts/{number}/balance` | Saldo puntual. |
 | `GET` | `/api/accounts/{number}/transactions` | Historial de la cuenta, paginado por cursor. |
 | `GET` | `/api/transactions` | Historial consolidado, con filtros y paginación por cursor. |

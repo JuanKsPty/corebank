@@ -113,6 +113,19 @@ export function normaliseAccountNumber(value: string): string {
 }
 
 /** True when no field has a problem. */
+/**
+ * The longest alias an account may carry.
+ *
+ * Forty, matching the server's limit and the column's CHECK constraint. It is enforced
+ * here as a `maxLength` on the input so the limit is felt while typing rather than
+ * discovered on submit — the server still refuses anything longer, because a limit only
+ * the browser knows is not a limit.
+ *
+ * Counted the way both the server and PostgreSQL count it: in characters, not bytes, so
+ * "Ahorros de mamá" costs fifteen and not sixteen.
+ */
+export const MAX_ALIAS = 40
+
 export function isClean<T extends string>(errors: Errors<T>): boolean {
   return Object.values(errors).every((message) => !message)
 }

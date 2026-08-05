@@ -88,10 +88,25 @@ export interface HistoryQuery {
  * The owner is never sent: the server takes it from the session. A body carrying a user
  * id would be one forged field away from opening an account in somebody else's name.
  */
-export function openAccount(accountType: AccountType) {
+export function openAccount(accountType: AccountType, alias = '') {
   return request<Account>('/api/accounts', {
     method: 'POST',
-    body: { account_type: accountType },
+    body: { account_type: accountType, alias },
+  })
+}
+
+/**
+ * Renames one of the signed-in customer's accounts.
+ *
+ * PATCH because it changes one field and leaves the rest alone; a PUT would imply the
+ * body is the whole account, and nobody may replace a balance or a number. An empty
+ * alias is a valid request — it is how a name is removed, and the account goes back to
+ * being labelled by its type.
+ */
+export function renameAccount(accountNumber: string, alias: string) {
+  return request<Account>(`/api/accounts/${encodeURIComponent(accountNumber)}`, {
+    method: 'PATCH',
+    body: { alias },
   })
 }
 

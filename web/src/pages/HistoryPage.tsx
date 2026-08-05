@@ -23,7 +23,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
-import { accountTypeLabel } from '@/lib/format'
+import { accountLabel } from '@/lib/format'
 import { useHistory, useMe } from '@/lib/queries'
 
 const KINDS: Array<{ value: MovementKind | ''; label: string }> = [
@@ -290,7 +290,7 @@ function Filters({
           <NativeSelectOption value="">Todas</NativeSelectOption>
           {accounts.map((account) => (
             <NativeSelectOption key={account.account_number} value={account.account_number}>
-              {accountTypeLabel(account.account_type)} · {account.account_number}
+              {accountLabel(account)} · {account.account_number}
             </NativeSelectOption>
           ))}
         </NativeSelect>

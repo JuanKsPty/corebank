@@ -108,6 +108,39 @@ export function accountTypeLabel(type: string): string {
   return ACCOUNT_TYPES[type] ?? type
 }
 
+/**
+ * What to call an account on screen: the name its owner gave it, or its type.
+ *
+ * The fallback lives here and only here. Six screens label accounts, and if each one
+ * worked out `alias || tipo` for itself, one of them would eventually be added without
+ * it — and the screen that forgot would be the one showing two accounts that read
+ * identically, which is the whole problem this exists to solve.
+ *
+ * The number is not folded in on purpose. Every caller shows it separately, because an
+ * alias is how a person recognises an account and the number is how the bank identifies
+ * one; aliases are not unique, so the number has to stay visible next to the name
+ * rather than be replaced by it.
+ */
+export function accountLabel(account: { alias?: string; account_type: string }): string {
+  return account.alias?.trim() || accountTypeLabel(account.account_type)
+}
+
+/**
+ * The account's type, but only when the label above it is showing something else.
+ *
+ * Naming an account must not hide what kind of account it is: "Gastos del mes" does not
+ * say whether it is a current account or an investment one, and that matters. So when an
+ * alias takes the headline the type moves down beside the number, and when there is no
+ * alias this returns nothing, because the headline is already the type and printing it
+ * twice would be noise.
+ */
+export function accountTypeAside(account: {
+  alias?: string
+  account_type: string
+}): string | null {
+  return account.alias?.trim() ? accountTypeLabel(account.account_type) : null
+}
+
 const MOVEMENT_KINDS: Record<MovementKind, string> = {
   deposit: 'Depósito',
   withdrawal: 'Retiro',

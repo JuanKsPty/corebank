@@ -30,56 +30,78 @@ import { cn } from '@/lib/utils'
  * total, arrive nowhere, and wait for you — and this is the real component from the real
  * application, the same one on screen a minute later once somebody signs in.
  *
- * It also says it is a demo, in the footer and before anybody registers. The page used
- * to invite you to "abre una cuenta" like a bank; somebody who signs up and only then
- * works out that it is a portfolio piece has been misled by omission.
+ * The headline states the two true things and neither of them is a phrase: this is an
+ * online bank, and the data in it is invented. An earlier attempt opened on "tus
+ * cuentas, y alguien que las opera contigo", which reads well and commits to nothing —
+ * bank-marketing voice with the padding removed but the register intact. A demo whose
+ * front page performs is still performing.
+ *
+ * Saying it is a demo in the footer was also still hiding it, so the caveat is in the
+ * headline in softer ink. And the primary action is now getting in with the seeded
+ * account rather than filling a registration form: somebody evaluating this should not
+ * have to invent an identity before they can see a balance, and the link carries state
+ * that fills the sign-in form, so the button costs the one click it advertises.
  */
 export function LandingPage() {
   return (
     <div className="flex min-h-dvh flex-col bg-paper">
+      {/* One link, not two. The header used to repeat both of the hero's buttons a few
+          hundred pixels above them, which is four calls to action on a page with one
+          thing to do. What is left is the other intent: somebody who already has an
+          account and wants past all of this. */}
       <header className={cn('flex items-center justify-between py-4', gutter)}>
         <Wordmark className="h-[18px] text-ink" />
-        <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/entrar">Entrar</Link>
-          </Button>
-          <Button asChild size="sm" className="bg-copper text-white hover:bg-copper/90">
-            <Link to="/registro">Crear cuenta</Link>
-          </Button>
-        </div>
+        <Button asChild variant="ghost" size="sm">
+          <Link to="/entrar">Entrar</Link>
+        </Button>
       </header>
 
       <main className={cn('flex flex-1 flex-col justify-center py-10 md:py-14', gutter)}>
         <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-16">
           <div>
-            <h1 className="type-display max-w-[24ch] text-[clamp(2rem,5.2vw,3.5rem)]">
-              Tus cuentas, y alguien que las opera contigo.
+            {/* The caveat is in the headline, in softer ink, rather than in a badge
+                somewhere below it. It is the second most important true thing about
+                this page and hiding it in the footer was still hiding it. */}
+            <h1 className="type-display max-w-[19ch] text-[clamp(2rem,5.2vw,3.5rem)]">
+              Esto es un banco en línea.{' '}
+              <span className="text-ink-faint">Los datos son ficticios.</span>
             </h1>
             <p className="mt-5 max-w-[46ch] text-[1.0625rem] leading-relaxed text-ink-soft">
-              Mueve dinero entre tus cuentas, revisa tus movimientos o pídelo en español.
-              Nada se mueve hasta que lo confirmas.
+              Todo lo demás funciona. Consulta saldos, transfiere entre cuentas y revisa tu
+              historial, o pídeselo al asistente en español: él prepara el movimiento y
+              espera a que tú lo confirmes.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
+              {/* The primary action gets you in, rather than asking you to fill a form
+                  first. Somebody evaluating this should not have to invent an identity
+                  to see a balance, and the state here fills the sign-in form on
+                  arrival, so the button does what it says in one click. */}
               <Button asChild size="lg" className="bg-copper text-white hover:bg-copper/90">
-                <Link to="/entrar">Entrar</Link>
+                <Link to="/entrar" state={{ demo: true }}>
+                  Entrar con la cuenta de prueba
+                </Link>
               </Button>
               <Button asChild variant="outline" size="lg">
-                <Link to="/registro">Crear cuenta</Link>
+                <Link to="/registro">Crear una cuenta</Link>
               </Button>
             </div>
+
+            <p className="mt-3 text-[0.8125rem] text-ink-faint">
+              La cuenta de prueba entra directo. Crear una te da cuentas vacías.
+            </p>
           </div>
 
           <HoldDemonstration />
         </div>
       </main>
 
-      {/* Said before anybody registers, not after. The technical line sits here rather
-          than above, where it used to be the argument: down here it is evidence for
-          somebody who wants it and out of the way of somebody who does not. */}
+      {/* The size of the dataset, because "ficticios" invites the question of how
+          much of it there is, and the answer is more interesting than the adjective.
+          The stack sits alongside as evidence for whoever wants it. */}
       <footer className={cn('border-t border-rule py-5', gutter)}>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[0.75rem]">
-          <p className="font-medium text-ink-soft">Demo · datos ficticios</p>
+          <p className="text-ink-soft">1000 clientes, 1605 cuentas y 6429 movimientos.</p>
           <p className="text-ink-faint">Go · TigerBeetle · React · asistente por MCP</p>
         </div>
       </footer>

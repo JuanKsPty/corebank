@@ -2,9 +2,9 @@ import { useState } from 'react'
 
 import { ApiError } from '@/api/client'
 import { cn } from '@/lib/utils'
-import type { ConfirmationCard as Card } from '@/api/types'
+import type { Account, ConfirmationCard as Card } from '@/api/types'
 import { counterpartyLabel, moneyFromText, movementLabel } from '@/lib/format'
-import { useResolveConfirmation } from '@/lib/queries'
+import { useMe, useResolveConfirmation } from '@/lib/queries'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Countdown } from './primitives'
@@ -31,6 +31,13 @@ export function ConfirmationCard({
   onResolved?: (action: 'confirm' | 'cancel') => void
   onExpired?: () => void
 }) {
+  // The customer's own accounts, from the cache the rest of the interface already
+  // fills. The alias is resolved here rather than carried on the SSE event so the
+  // card shows what the account is called *now*, and so naming an account does not
+  // become something the confirmation contract has to know about.
+  const me = useMe()
+  const accounts = me.data?.accounts ?? []
+
   const resolve = useResolveConfirmation()
   const [outcome, setOutcome] = useState<'confirm' | 'cancel' | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -103,13 +110,17 @@ export function ConfirmationCard({
         <dl className="mt-3.5 space-y-1.5 text-[0.8125rem]">
           <div className="flex gap-2">
             <dt className="w-14 shrink-0 text-ink-faint">Desde</dt>
-            <dd className="type-figure">{counterpartyLabel(card.from_account)}</dd>
+            <dd className="min-w-0">
+              <AccountRef number={card.from_account} accounts={accounts} />
+            </dd>
           </div>
           <div className="flex gap-2">
             <dt className="w-14 shrink-0 text-ink-faint">
               {isWithdrawal ? 'Salida' : 'Hacia'}
             </dt>
-            <dd className="type-figure">{counterpartyLabel(card.to_account)}</dd>
+            <dd className="min-w-0">
+              <AccountRef number={card.to_account} accounts={accounts} />
+            </dd>
           </div>
           {card.balance_if_confirmed && (
             <div className="flex gap-2 border-t border-rule pt-1.5">
@@ -213,5 +224,41 @@ function ResolvedCard({ card, action }: { card: Card; action: 'confirm' | 'cance
           : 'No se movió nada y los fondos volvieron a estar disponibles.'}
       </p>
     </div>
+  )
+}
+
+/**
+ * An account as it appears on the card: by the name its owner gave it, with the last
+ * four digits alongside.
+ *
+ * This is the one screen where mistaking two accounts costs money, so it is the one
+ * that most needs to say "Gastos del mes" rather than a sixteen-digit number nobody
+ * reads to the end. The number stays because aliases are not unique and the digits are
+ * what actually identify the account.
+ *
+ * A counterparty that is not one of the customer's own accounts has no alias to find,
+ * and falls back to what the card always showed.
+ */
+function AccountRef({
+  number,
+  accounts,
+}: {
+  number: string | undefined
+  accounts: Account[]
+}) {
+  const own = number
+    ? accounts.find((account) => account.account_number === number)
+    : undefined
+  const alias = own?.alias.trim()
+
+  if (!alias || !number) {
+    return <span className="type-figure">{counterpartyLabel(number)}</span>
+  }
+
+  return (
+    <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+      <span className="truncate font-medium">{alias}</span>
+      <span className="type-figure shrink-0 text-ink-faint">···{number.slice(-4)}</span>
+    </span>
   )
 }
