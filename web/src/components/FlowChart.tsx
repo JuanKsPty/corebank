@@ -1,4 +1,12 @@
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 import type { Flow } from '@/api/types'
 import { formatDayMonth, money } from '@/lib/format'
@@ -28,11 +36,23 @@ export function FlowChart({ flow }: { flow: Flow }) {
   return (
     <div className="h-[180px] w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -18 }} barGap={1}>
-          <CartesianGrid vertical={false} stroke="var(--color-rule)" strokeDasharray="2 3" />
+        <BarChart
+          data={data}
+          margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
+          barGap={1}
+        >
+          <CartesianGrid
+            vertical={false}
+            stroke="var(--color-rule)"
+            strokeDasharray="2 3"
+          />
           <XAxis
             dataKey="label"
-            tick={{ fill: 'var(--color-ink-faint)', fontSize: 10, fontFamily: 'Spline Sans Mono' }}
+            tick={{
+              fill: 'var(--color-ink-faint)',
+              fontSize: 10,
+              fontFamily: 'Spline Sans Mono',
+            }}
             axisLine={{ stroke: 'var(--color-rule)' }}
             tickLine={false}
             // With thirty days on a narrow chart every label would overlap, so
@@ -41,7 +61,11 @@ export function FlowChart({ flow }: { flow: Flow }) {
             minTickGap={24}
           />
           <YAxis
-            tick={{ fill: 'var(--color-ink-faint)', fontSize: 10, fontFamily: 'Spline Sans Mono' }}
+            tick={{
+              fill: 'var(--color-ink-faint)',
+              fontSize: 10,
+              fontFamily: 'Spline Sans Mono',
+            }}
             axisLine={false}
             tickLine={false}
             width={62}
@@ -51,8 +75,21 @@ export function FlowChart({ flow }: { flow: Flow }) {
             content={<FlowTooltip />}
             cursor={{ fill: 'var(--color-paper-sunken)' }}
           />
-          <Bar dataKey="inCents" name="Entradas" fill="var(--color-credit)" radius={[2, 2, 0, 0]} maxBarSize={14} />
-          <Bar dataKey="outCents" name="Salidas" fill="var(--color-ink)" fillOpacity={0.55} radius={[2, 2, 0, 0]} maxBarSize={14} />
+          <Bar
+            dataKey="inCents"
+            name="Entradas"
+            fill="var(--color-credit)"
+            radius={[2, 2, 0, 0]}
+            maxBarSize={14}
+          />
+          <Bar
+            dataKey="outCents"
+            name="Salidas"
+            fill="var(--color-ink)"
+            fillOpacity={0.55}
+            radius={[2, 2, 0, 0]}
+            maxBarSize={14}
+          />
         </BarChart>
       </ResponsiveContainer>
 

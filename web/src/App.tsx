@@ -73,7 +73,9 @@ export function App() {
  */
 function RedirectToSignIn() {
   const location = useLocation()
-  return <Navigate to="/entrar" replace state={{ from: location.pathname + location.search }} />
+  return (
+    <Navigate to="/entrar" replace state={{ from: location.pathname + location.search }} />
+  )
 }
 
 function RestoringSession() {

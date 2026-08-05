@@ -1,0 +1,8 @@
+# Generated, vendored, or not ours to reformat.
+node_modules
+dist
+
+# shadcn/ui components are pulled in by its CLI and re-pulled when one is updated.
+# Reformatting them would turn every future `shadcn add` into a diff against our own
+# style instead of an upgrade.
+src/components/ui

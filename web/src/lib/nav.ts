@@ -36,7 +36,13 @@ export const NAV: NavItem[] = [
   // surface that opens over whatever you were looking at, so the balance stays visible
   // behind it while a reservation is confirmed. Five slots is what puts it in the
   // centre — with four it was third of four and sat off to one side.
-  { to: '#asistente', label: 'Asistente', short: 'Asistente', icon: SparklesIcon, assistant: true },
+  {
+    to: '#asistente',
+    label: 'Asistente',
+    short: 'Asistente',
+    icon: SparklesIcon,
+    assistant: true,
+  },
   { to: '/mover', label: 'Mover dinero', short: 'Mover', icon: ArrowLeftRightIcon },
   { to: '/historial', label: 'Historial', short: 'Historial', icon: ReceiptTextIcon },
 ]

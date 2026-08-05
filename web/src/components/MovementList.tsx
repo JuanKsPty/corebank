@@ -3,9 +3,23 @@ import { Link } from 'react-router-dom'
 
 import type { Transaction } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   counterpartyLabel,
   counterpartyShort,
@@ -299,7 +313,10 @@ function PhoneRow({
       />
 
       {destination ? (
-        <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-ink-faint" aria-hidden="true" />
+        <ChevronRightIcon
+          className="mt-0.5 size-4 shrink-0 text-ink-faint"
+          aria-hidden="true"
+        />
       ) : (
         <span className="size-4 shrink-0" aria-hidden="true" />
       )}
@@ -334,7 +351,10 @@ function StatusMark({ movement }: { movement: Transaction }) {
 
   if (movement.status === 'pending') {
     return (
-      <Badge variant="outline" className="type-figure shrink-0 border-hold/35 bg-hold/12 text-hold">
+      <Badge
+        variant="outline"
+        className="type-figure shrink-0 border-hold/35 bg-hold/12 text-hold"
+      >
         {label}
       </Badge>
     )

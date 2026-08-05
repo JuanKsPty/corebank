@@ -60,7 +60,8 @@ export function amountProblem(value: string, availableCents?: number): string | 
   const raw = value.trim()
   if (!raw) return 'Indica un monto.'
   if (!/^\d+(\.\d{1,2})?$/.test(raw)) {
-    if (/,/.test(raw)) return 'Escribe el monto sin separador de miles, por ejemplo 1500.50.'
+    if (/,/.test(raw))
+      return 'Escribe el monto sin separador de miles, por ejemplo 1500.50.'
     if (/^\d+\.\d{3,}$/.test(raw)) return 'El monto admite como máximo dos decimales.'
     return 'Escribe solo dígitos y un punto decimal, por ejemplo 150.50.'
   }

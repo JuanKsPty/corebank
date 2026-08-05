@@ -49,7 +49,10 @@ export function Figure({
       aria-label={money(amount)}
     >
       <span aria-hidden="true">{whole}</span>
-      <span aria-hidden="true" className={size === 'display' ? 'text-[0.55em]' : 'text-[0.8em]'}>
+      <span
+        aria-hidden="true"
+        className={size === 'display' ? 'text-[0.55em]' : 'text-[0.8em]'}
+      >
         {cents}
       </span>
     </span>
