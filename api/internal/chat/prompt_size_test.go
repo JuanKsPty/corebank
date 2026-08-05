@@ -24,6 +24,12 @@ import (
 // That is the regression this file exists to catch. `go test` reports the character
 // counts with no credentials at all; with ANTHROPIC_API_KEY set it asks the API for
 // the exact token count, which is free — count_tokens bills nothing.
+//
+// For scale: production reports about 2700 tokens for this preamble, comfortably clear
+// of both thresholds. Note that it is *both*, which was not what this repository
+// claimed for a while. The figure had been estimated at 1500–1700 by dividing
+// characters by three, and the conclusion drawn from it — that only Sonnet could cache
+// this — did not survive being measured.
 
 // minimumCacheableTokens is Sonnet's threshold. Below this, cache_control is accepted
 // and quietly does nothing.

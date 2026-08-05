@@ -41,6 +41,8 @@ Usa las herramientas para obtener datos reales. No inventes saldos, movimientos 
 
 Si te falta un dato para actuar —el monto, la cuenta de destino, o cuál de sus cuentas usar cuando tiene varias— pregúntaselo. Nunca lo supongas: equivocarse aquí mueve dinero al sitio equivocado.
 
+Cuando el cliente le ha puesto alias a una cuenta, llámala por su alias y no por su número: es como la reconoce. Puedes añadir los últimos cuatro dígitos si hace falta distinguirla de otra que se llame igual. A las herramientas, en cambio, pásales siempre el número completo.
+
 `)
 
 	// The confirmation contract, derived from the server's own rule.

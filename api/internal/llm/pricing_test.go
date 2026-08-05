@@ -161,6 +161,43 @@ func TestEstimateCostOverestimates(t *testing.T) {
 	}
 }
 
+// The input half of the estimate has to be conservative on its own.
+//
+// It did not used to be. charsPerToken was 3, taken from the usual 3.5–4 rule of
+// thumb, while this prompt measures 2.2 characters per token in production — so the
+// input estimate came out 27% under, and the reservation only stayed above the real
+// cost because the output allowance was carrying it. That made the ceiling's
+// guarantee depend on maxReplyTokens, which exists for a different reason and could
+// reasonably be lowered.
+//
+// This pins the property directly: for text at the density this assistant actually
+// sends, the estimated input tokens must exceed the real ones with the output
+// allowance taken out of the picture entirely.
+func TestEstimateCostOverestimatesInputAlone(t *testing.T) {
+	// The measured preamble: 5919 characters, 2722 tokens.
+	const (
+		preambleChars  = 5919
+		preambleTokens = 2722
+	)
+
+	req := Request{System: repeat("a", preambleChars)}
+
+	estimate := EstimateCost("claude-sonnet-5", req, duringIntro)
+	// Take the output allowance back out, leaving only what the estimate said the
+	// input was worth.
+	outputPart, _ := Cost("claude-sonnet-5", Usage{OutputTokens: maxReplyTokens}, duringIntro)
+	inputPart := estimate - outputPart
+
+	realInput, _ := Cost("claude-sonnet-5", Usage{InputTokens: preambleTokens}, duringIntro)
+
+	if inputPart < realInput {
+		t.Errorf("the estimate prices this input at %d micros but it really costs %d; "+
+			"charsPerToken=%d is too high for the text this assistant sends, so the "+
+			"reservation is only conservative while maxReplyTokens props it up",
+			inputPart, realInput, charsPerToken)
+	}
+}
+
 // An empty request still has to reserve something, or a caller could make
 // unbounded calls that each reserve nothing.
 func TestEstimateCostIsNeverZero(t *testing.T) {

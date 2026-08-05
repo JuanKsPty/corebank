@@ -288,17 +288,47 @@ en lo más caro de una conversación y lo más rentable de cachear. Se mide, no 
 cd api && go test ./internal/chat/ -run TestFixedPreambleSize -v
 ```
 
-Sin clave reporta los caracteres (**5.919**: 2.532 del prompt de sistema y 3.387 de
+Sin clave reporta los caracteres (**6.203**: 2.816 del prompt de sistema y 3.387 de
 las herramientas). Con `ANTHROPIC_API_KEY` puesta pregunta el conteo exacto a
 `/v1/messages/count_tokens`, que **no cobra nada**, y falla si el preámbulo baja de
 los 1.024 tokens que la caché necesita para activarse en Sonnet. Esa es la regresión
 que ese test existe para atrapar: por debajo de la línea, `cache_control` se sigue
 enviando y deja de hacer nada, sin que nada falle para avisarlo.
 
-Ese umbral es también el motivo del modelo elegido. El mínimo de caché de Sonnet son
-1.024 tokens; el de Haiku 4.5 son 2.048. **El preámbulo es cacheable en Sonnet y no en
-Haiku**, así que Sonnet con caché cuesta más o menos lo que Haiku sin ella, con un
-modelo mejor para un bucle agéntico con contrato de confirmación.
+### La caché, medida en producción
+
+Un mensaje real deja dos líneas en el log, una por vuelta del bucle de herramientas:
+
+```
+AI spend  cost_micros=7269  cache_write_tokens=2722  cache_read_tokens=0
+AI spend  cost_micros=1375  cache_write_tokens=103   cache_read_tokens=2722
+```
+
+La primera llamada escribe el preámbulo en la caché; la segunda **lo lee entero** y
+cuesta una quinta parte. El mensaje completo sale por **8.644 micro-dólares, menos de
+un centavo**, así que los $4 del techo dan para unos 460 mensajes.
+
+Esa medición corrigió dos cosas que este README afirmaba y que eran falsas.
+
+El preámbulo son **~2.800 tokens, no los 1.500–1.700** que se estimaban contando
+caracteres. La proporción real es de **2,2 caracteres por token**, no los 3,5–4 de la
+regla habitual, porque el español y los esquemas JSON tokenizan más denso que la prosa
+inglesa de la que sale esa regla. Los 2.722 del log son de antes de añadirle una línea
+al prompt.
+
+Eso obligó a bajar `charsPerToken` de 3 a 2 en la estimación que reserva presupuesto.
+Con 3, la parte de entrada quedaba un **27% por debajo** de la real, y la reserva solo
+seguía siendo mayor que el gasto porque el techo de salida —cinco veces más caro y que
+se asume gastado entero— la sostenía. Eso es la garantía del techo apoyada en una
+constante que existe para otra cosa: bajar `maxReplyTokens` por un buen motivo la habría
+roto en silencio. Hay un test que fija esa propiedad por separado.
+
+Y con eso se cae el argumento de coste a favor de Sonnet. El preámbulo supera **los dos
+mínimos** —1.024 de Sonnet y 2.048 de Haiku 4.5— así que en Haiku también se cachearía;
+decir lo contrario era una conclusión sacada de una cifra mal estimada. Sonnet se queda
+por lo que sí se sostiene: es un bucle agéntico con un contrato de confirmación que un
+modelo más pequeño se salta, y a menos de un centavo por mensaje el ahorro no compra
+nada que valga ese riesgo.
 
 ### Conversaciones para probar
 

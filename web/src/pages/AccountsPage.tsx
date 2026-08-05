@@ -166,7 +166,10 @@ function OpenAccountDialog({ held }: { held: number }) {
   const failure = openAccount.error
   const message =
     failure instanceof ApiError
-      ? failure.message
+      ? // The per-field message when the alias is what the server objected to.
+        // Without it the dialog answers a rejected alias with the generic envelope
+        // message and never says which field to fix — and this form has two.
+        (failure.fields?.alias ?? failure.message)
       : failure
         ? 'No pudimos abrir la cuenta. Inténtalo de nuevo.'
         : null
