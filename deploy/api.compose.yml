@@ -1,9 +1,18 @@
-# The API and the dataset import, as deployed.
+# The API, as deployed.
 #
 # Separate from docker-compose.yml because that file is the whole system on one
-# host — what somebody who just cloned the repository runs. Here the stores are
-# their own deployments: PostgreSQL is a managed resource and the ledger has its
-# own stack, so this file contains only the two things that share a lifecycle.
+# host — what somebody who just cloned the repository runs. Here the store is
+# its own deployment: PostgreSQL is a managed resource and the ledger has its
+# own stack, so this file contains only the one thing that shares this
+# lifecycle.
+#
+# No `seed` service here, unlike docker-compose.yml: this deployment runs on
+# a real person's real data (their own registration, plus the bank-import and
+# IBKR-sync pipelines), and importing the technical-test demo dataset into it
+# would mean seeing somebody else's ~1600 fake accounts of history in your
+# own bank. The demo dataset still exists — docker-compose.yml's `seed`
+# service, gated behind `--profile seed`, is for a separate standalone demo
+# instance, not this one.
 #
 # Not a Dokploy "Application", which would deploy this as a Swarm service. Swarm
 # ignores security_opt, and the TigerBeetle client opens its own io_uring — under
@@ -51,6 +60,10 @@ services:
       AI_DAILY_BUDGET_USD: ${AI_DAILY_BUDGET_USD:-1.00}
       AI_USER_DAILY_BUDGET_USD: ${AI_USER_DAILY_BUDGET_USD:-0.30}
       AI_MAX_TOOL_TURNS: ${AI_MAX_TOOL_TURNS:-4}
+      # Set in the deployment's variables to enable linking an IBKR account.
+      # Empty is a supported state: SetLink refuses with a clear error and
+      # everything else keeps working — see config.IBKRConfig.
+      IBKR_TOKEN_ENCRYPTION_KEY: ${IBKR_TOKEN_ENCRYPTION_KEY:-}
     # No published ports. Traefik reaches this over the shared network.
     networks:
       - dokploy-network
@@ -62,30 +75,6 @@ services:
       retries: 20
       start_period: 15s
     restart: unless-stopped
-
-  # One-shot, and idempotent by a marker row: after the first run it finds the
-  # marker and exits without touching anything.
-  seed:
-    build:
-      context: ../api
-    image: corebank-api
-    command: ["seed"]
-    security_opt:
-      - seccomp=unconfined # the ledger client needs it; see `api`
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      TB_ADDRESSES: ${TB_ADDRESSES:-10.77.0.10:3001}
-      TB_CLUSTER_ID: ${TB_CLUSTER_ID:-0}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-    depends_on:
-      # Waits for the API, which is what applies the migrations this needs tables
-      # from.
-      api:
-        condition: service_healthy
-    networks:
-      - dokploy-network
-      - ledger
-    restart: "no"
 
 networks:
   # Dokploy's shared network: how Traefik reaches the API and how the API reaches
