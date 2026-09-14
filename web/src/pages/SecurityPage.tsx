@@ -24,6 +24,7 @@ import {
   useSecurityStatus,
   useSetPin,
 } from '@/lib/queries'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { isClean, pinProblem, type Errors } from '@/lib/validate'
 
 type FieldName = 'current_password' | 'pin' | 'confirm_pin'
@@ -305,6 +306,7 @@ function DeviceCard({
   hasPin: boolean
   deviceEnabled: boolean
 }) {
+  const isMobile = useIsMobile()
   const enable = useEnableDeviceForPin()
   const disable = useDisableDeviceForPin()
   const [failure, setFailure] = useState<ApiError | null>(null)
@@ -335,7 +337,15 @@ function DeviceCard({
     <div className="card p-5">
       <h2 className="text-[0.9375rem] font-medium">Este dispositivo</h2>
 
-      {!hasPin ? (
+      {!isMobile ? (
+        // The PIN box only ever appears on a phone (see SignInPage), so
+        // enabling it from a desktop browser would activate an acceso rápido
+        // this device's own login screen is never going to offer.
+        <p className="mt-2 text-[0.875rem] text-ink-soft">
+          El acceso rápido con PIN solo funciona desde el celular. Abre esta página desde tu
+          teléfono para activarlo ahí.
+        </p>
+      ) : !hasPin ? (
         <p className="mt-2 text-[0.875rem] text-ink-soft">
           Crea un PIN arriba para poder activar el acceso rápido en este navegador.
         </p>
