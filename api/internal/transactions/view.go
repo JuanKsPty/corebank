@@ -21,6 +21,9 @@ type View struct {
 	FromAccount string       `json:"from_account,omitempty"`
 	ToAccount   string       `json:"to_account,omitempty"`
 	Description string       `json:"description"`
+	// CategoryID is empty when the movement has not been filed under a
+	// category yet.
+	CategoryID string `json:"category_id,omitempty"`
 	// Origin is "api" or "chat", so the interface can mark what the assistant did.
 	Origin string `json:"origin"`
 	// FailureCode is present only on a failed movement, naming the reason the
@@ -56,6 +59,9 @@ func newView(t store.Transaction) View {
 		Origin:      t.Origin,
 		FailureCode: t.FailureCode,
 		OccurredAt:  t.OccurredAt,
+	}
+	if t.CategoryID != nil {
+		v.CategoryID = t.CategoryID.String()
 	}
 	if t.AwaitingConfirmation() {
 		v.Confirmation = &ConfirmationView{

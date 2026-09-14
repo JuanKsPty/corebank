@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +73,38 @@ func TestJWTSecretFromEnv(t *testing.T) {
 	}
 }
 
+func TestIBKRDisabledWhenUnset(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.IBKR.Enabled() {
+		t.Error("IBKR reports itself enabled without an encryption key")
+	}
+}
+
+func TestIBKRKeyFromEnv(t *testing.T) {
+	clearEnv(t)
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	t.Setenv("IBKR_TOKEN_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(key))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.IBKR.Enabled() {
+		t.Error("IBKR reports itself disabled despite a configured key")
+	}
+	if string(cfg.IBKR.TokenEncryptionKey) != string(key) {
+		t.Error("the decoded key does not match what was configured")
+	}
+}
+
 func TestLoadReportsEveryProblemAtOnce(t *testing.T) {
 	// Fixing one bad variable only to be told about the next one is a miserable
 	// way to start a container, so Load must not stop at the first failure.
@@ -105,6 +138,8 @@ func TestLoadRejects(t *testing.T) {
 		{"HTTP_SHUTDOWN_TIMEOUT", "-5s"},
 		{"AI_MAX_TOOL_TURNS", "0"},
 		{"TB_ADDRESSES", ","},
+		{"IBKR_TOKEN_ENCRYPTION_KEY", "not valid base64!!"},
+		{"IBKR_TOKEN_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("too short"))},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
 			clearEnv(t)
@@ -127,6 +162,7 @@ func clearEnv(t *testing.T) {
 		"TB_CLUSTER_ID", "TB_ADDRESSES", "TB_CONNECT_WAIT",
 		"JWT_SECRET", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "BCRYPT_COST", "LOGIN_RATE_LIMIT",
 		"ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "CONFIRMATION_TTL", "AI_MAX_TOOL_TURNS",
+		"IBKR_TOKEN_ENCRYPTION_KEY",
 		"LOG_LEVEL", "LOG_FORMAT", "SEED_FILE",
 	} {
 		t.Setenv(key, "")

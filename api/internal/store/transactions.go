@@ -44,6 +44,10 @@ const (
 
 	OriginAPI  = "api"
 	OriginChat = "chat"
+	// OriginIBKRSync marks a cash movement corebank posted on its own
+	// initiative because an IBKR sync reported it, not because the customer
+	// asked for it in the moment.
+	OriginIBKRSync = "ibkr_sync"
 )
 
 // ExternalAccount is the counterparty for money entering or leaving the bank.
@@ -74,9 +78,13 @@ type Transaction struct {
 	// FailureCode is the ledger's rejection reason, kept verbatim so a failure is
 	// diagnosable from the row alone.
 	FailureCode string
-	OccurredAt  time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// CategoryID is metadata a customer attaches after the fact — see the
+	// categories package. It has no bearing on the movement itself, which is
+	// why it is not part of any equality check the idempotency replay does.
+	CategoryID *uuid.UUID
+	OccurredAt time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // AwaitingConfirmation reports whether this movement is holding funds and waiting
@@ -95,7 +103,7 @@ func (t Transaction) AwaitingConfirmation() bool {
 const txColumns = `
 	id, kind, status, amount_cents, currency, from_account, to_account,
 	description, source, origin, initiated_by, hold_id, hold_expires_at,
-	failure_code, occurred_at, created_at, updated_at
+	failure_code, category_id, occurred_at, created_at, updated_at
 `
 
 // CreateTransaction inserts a movement, normally with StatusPending, before it is
@@ -503,13 +511,15 @@ func scanTransaction(s scanner) (Transaction, error) {
 		from, to, failureCode *string
 		initiatedBy, holdID   *uuid.UUID
 		holdExpiresAt         *time.Time
+		categoryID            *uuid.UUID
 	)
 	err := s.Scan(&t.ID, &kind, &status, &amount, &t.Currency, &from, &to,
 		&t.Description, &t.Source, &t.Origin, &initiatedBy, &holdID, &holdExpiresAt,
-		&failureCode, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt)
+		&failureCode, &categoryID, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return Transaction{}, err
 	}
+	t.CategoryID = categoryID
 
 	parsedKind, err := ledger.ParseMovementKind(kind)
 	if err != nil {
