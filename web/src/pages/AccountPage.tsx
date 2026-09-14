@@ -3,16 +3,43 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
-import type { Account } from '@/api/types'
+import type { Account, InvestmentLinkStatus } from '@/api/types'
 import { MovementList } from '@/components/MovementList'
 import { BalanceComposition, Figure } from '@/components/primitives'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { accountLabel, accountTypeAside, accountTypeLabel, formatDate } from '@/lib/format'
-import { useHistory, useMe, useRenameAccount } from '@/lib/queries'
+import {
+  useHistory,
+  useInvestmentLink,
+  useInvestmentTrades,
+  useLinkInvestmentAccount,
+  useMe,
+  usePortfolio,
+  useRenameAccount,
+  useSyncInvestmentAccount,
+} from '@/lib/queries'
 import { MAX_ALIAS } from '@/lib/validate'
 
 /**
@@ -106,6 +133,10 @@ export function AccountPage() {
             respondes, la reserva se libera sola.
           </AlertDescription>
         </Alert>
+      )}
+
+      {account && account.account_type === 'investment' && (
+        <InvestmentSection account={account} />
       )}
 
       <section className="card" aria-labelledby="movimientos">
@@ -256,5 +287,399 @@ function RenameAccount({ account }: { account: Account }) {
         </p>
       )}
     </form>
+  )
+}
+
+/**
+ * An investment account's IBKR portfolio.
+ *
+ * Not linked yet and linked are two different screens, not one screen with a
+ * conditional banner: before a link exists there is nothing to show but a way to
+ * create one, and after it exists the account's own data is what the page is about.
+ */
+function InvestmentSection({ account }: { account: Account }) {
+  const link = useInvestmentLink(account.account_number)
+
+  // ibkr_not_linked is the normal shape of "no link yet", not a fault — every
+  // other failure to load the link's own status is shown as one.
+  const notLinked =
+    link.isError && link.error instanceof ApiError && link.error.code === 'ibkr_not_linked'
+
+  return (
+    <section className="card" aria-labelledby="inversiones">
+      <div className="border-b border-rule px-4 py-3">
+        <h2 id="inversiones" className="type-eyebrow">
+          Portafolio de IBKR
+        </h2>
+      </div>
+
+      <div className="space-y-5 px-4 py-4">
+        {link.isLoading && (
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        )}
+
+        {notLinked && <LinkAccountForm account={account} />}
+
+        {link.isError && !notLinked && (
+          <Alert variant="destructive">
+            <CircleAlertIcon />
+            <AlertTitle>No se pudo cargar el estado de la cuenta de IBKR</AlertTitle>
+            <AlertDescription>Inténtalo de nuevo en un momento.</AlertDescription>
+          </Alert>
+        )}
+
+        {link.isSuccess && link.data && (
+          <LinkedPortfolio account={account} link={link.data} />
+        )}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * The one-time form that creates a link.
+ *
+ * A dialog rather than an inline form, unlike `RenameAccount`: entering a broker
+ * token is not something to leave half-typed in the middle of the page, and a
+ * dialog is where this codebase already puts an action taken once and rarely
+ * repeated (`OpenAccountDialog` in `AccountsPage.tsx`).
+ */
+function LinkAccountForm({ account }: { account: Account }) {
+  const [open, setOpen] = useState(false)
+  const [ibkrAccountId, setIbkrAccountId] = useState('')
+  const [flexQueryId, setFlexQueryId] = useState('')
+  const [flexToken, setFlexToken] = useState('')
+  const link = useLinkInvestmentAccount()
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    link.mutate(
+      {
+        accountNumber: account.account_number,
+        input: {
+          ibkr_account_id: ibkrAccountId,
+          flex_query_id: flexQueryId,
+          flex_token: flexToken,
+        },
+      },
+      {
+        onSuccess: () => {
+          setOpen(false)
+          setIbkrAccountId('')
+          setFlexQueryId('')
+          setFlexToken('')
+          link.reset()
+        },
+      },
+    )
+  }
+
+  const failure = link.error
+  const message =
+    failure instanceof ApiError
+      ? (failure.fields?.flex_token ?? failure.fields?.flex_query_id ?? failure.message)
+      : failure
+        ? 'No pudimos vincular la cuenta. Inténtalo de nuevo.'
+        : null
+
+  return (
+    <div>
+      <p className="text-[0.8125rem] text-ink-soft">
+        Conecta esta cuenta con una Flex Query de Interactive Brokers para traer tu efectivo
+        y tus posiciones reales.
+      </p>
+
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) link.reset()
+        }}
+      >
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" className="mt-3">
+            Vincular con IBKR
+          </Button>
+        </DialogTrigger>
+
+        <DialogContent className="sm:max-w-[26rem]">
+          <form onSubmit={submit}>
+            <DialogHeader>
+              <DialogTitle className="type-display text-[1.25rem]">
+                Vincula tu cuenta de IBKR
+              </DialogTitle>
+              <DialogDescription>
+                El token se guarda cifrado y no se vuelve a mostrar después de esto.
+              </DialogDescription>
+            </DialogHeader>
+
+            <fieldset className="grid gap-4 py-4" disabled={link.isPending}>
+              <Field>
+                <FieldLabel htmlFor="ibkr-account-id">Número de cuenta de IBKR</FieldLabel>
+                <Input
+                  id="ibkr-account-id"
+                  value={ibkrAccountId}
+                  onChange={(event) => setIbkrAccountId(event.target.value)}
+                  placeholder="U13446202"
+                  autoComplete="off"
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="flex-query-id">Query ID de la Flex Query</FieldLabel>
+                <Input
+                  id="flex-query-id"
+                  value={flexQueryId}
+                  onChange={(event) => setFlexQueryId(event.target.value)}
+                  autoComplete="off"
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="flex-token">Token de Flex Web Service</FieldLabel>
+                <Input
+                  id="flex-token"
+                  type="password"
+                  value={flexToken}
+                  onChange={(event) => setFlexToken(event.target.value)}
+                  autoComplete="off"
+                  required
+                />
+              </Field>
+            </fieldset>
+
+            {message && (
+              <p role="alert" className="mb-2 text-[0.8125rem] text-danger-text">
+                {message}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                disabled={link.isPending}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={link.isPending || !ibkrAccountId || !flexQueryId || !flexToken}
+                className="bg-copper text-white hover:bg-copper/90"
+              >
+                {link.isPending && <Spinner />}
+                Vincular
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+/** A linked account's sync control and its last-known portfolio. */
+function LinkedPortfolio({
+  account,
+  link,
+}: {
+  account: Account
+  link: InvestmentLinkStatus
+}) {
+  const sync = useSyncInvestmentAccount()
+  const portfolio = usePortfolio(account.account_number)
+  const trades = useInvestmentTrades(account.account_number)
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[0.8125rem] text-ink-faint">
+            {link.last_synced_at
+              ? `Última sincronización: ${formatDate(link.last_synced_at)}`
+              : 'Todavía no se ha sincronizado.'}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => sync.mutate(account.account_number)}
+            disabled={sync.isPending}
+          >
+            {sync.isPending && <Spinner />}
+            {sync.isPending ? 'Sincronizando' : 'Sincronizar ahora'}
+          </Button>
+        </div>
+
+        {link.last_sync_status === 'error' && link.last_sync_error && (
+          <Alert variant="destructive" className="mt-3">
+            <CircleAlertIcon />
+            <AlertTitle>La última sincronización falló</AlertTitle>
+            <AlertDescription>{link.last_sync_error}</AlertDescription>
+          </Alert>
+        )}
+
+        {sync.isSuccess && sync.data && (
+          <p className="mt-2 text-[0.8125rem] text-ink-soft">
+            Efectivo: {sync.data.cash_movements_posted} nuevo(s),{' '}
+            {sync.data.cash_movements_skipped} ya registrado(s) · Operaciones:{' '}
+            {sync.data.trades_recorded} nueva(s) · Posiciones: {sync.data.positions}
+          </p>
+        )}
+
+        {sync.isError && (
+          <Alert variant="destructive" className="mt-3">
+            <CircleAlertIcon />
+            <AlertTitle>No se pudo sincronizar</AlertTitle>
+            <AlertDescription>
+              {sync.error instanceof ApiError
+                ? sync.error.message
+                : 'Inténtalo de nuevo en un momento.'}
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+
+      {portfolio.isLoading && (
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      )}
+
+      {portfolio.data && (
+        <>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="type-eyebrow">Efectivo</p>
+              <Figure amount={portfolio.data.cash} size="lg" className="mt-1" />
+            </div>
+            <div>
+              <p className="type-eyebrow">Posiciones</p>
+              <Figure amount={portfolio.data.holdings_value} size="lg" className="mt-1" />
+            </div>
+            <div>
+              <p className="type-eyebrow">Total</p>
+              <Figure
+                amount={portfolio.data.total_value}
+                size="lg"
+                tone="copper"
+                className="mt-1"
+              />
+            </div>
+          </div>
+
+          {portfolio.data.positions.length === 0 ? (
+            <p className="text-[0.8125rem] text-ink-faint">
+              Todavía no hay posiciones registradas. Sincroniza para traerlas.
+            </p>
+          ) : (
+            <div className="overflow-hidden rounded-[5px] border border-rule">
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
+                      Símbolo
+                    </TableHead>
+                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
+                      Cantidad
+                    </TableHead>
+                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
+                      Precio
+                    </TableHead>
+                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
+                      Valor
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {portfolio.data.positions.map((position) => (
+                    <TableRow
+                      key={position.symbol}
+                      className="border-b border-rule last:border-0"
+                    >
+                      <TableCell className="px-3 py-2.5">
+                        <span className="font-medium">{position.symbol}</span>
+                        <span className="ml-1.5 text-[0.75rem] text-ink-faint">
+                          {position.asset_class}
+                        </span>
+                      </TableCell>
+                      <TableCell className="type-figure px-3 py-2.5 text-right text-[0.8125rem] text-ink-soft">
+                        {position.quantity}
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5 text-right">
+                        <Figure amount={position.mark_price} size="sm" />
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5 text-right">
+                        <Figure amount={position.market_value} size="sm" />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </>
+      )}
+
+      {trades.data && trades.data.trades.length > 0 && (
+        <div>
+          <p className="type-eyebrow mb-2">Operaciones recientes</p>
+          <div className="overflow-hidden rounded-[5px] border border-rule">
+            <Table className="table-fixed">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
+                    Fecha
+                  </TableHead>
+                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
+                    Símbolo
+                  </TableHead>
+                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
+                    Lado
+                  </TableHead>
+                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
+                    Cantidad
+                  </TableHead>
+                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
+                    Precio
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trades.data.trades.map((trade, index) => (
+                  <TableRow
+                    // Trades have no id of their own on the wire — the tuple below is
+                    // as unique as this list gets, and it is stable across refetches
+                    // of the same data.
+                    key={`${trade.symbol}-${trade.trade_date}-${index}`}
+                    className="border-b border-rule last:border-0"
+                  >
+                    <TableCell className="type-figure px-3 py-2.5 text-[0.8125rem] text-ink-faint">
+                      {formatDate(trade.trade_date)}
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5 font-medium">
+                      {trade.symbol}
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5 text-[0.8125rem] text-ink-soft">
+                      {trade.side === 'buy' ? 'Compra' : 'Venta'}
+                    </TableCell>
+                    <TableCell className="type-figure px-3 py-2.5 text-right text-[0.8125rem] text-ink-soft">
+                      {trade.quantity}
+                    </TableCell>
+                    <TableCell className="px-3 py-2.5 text-right">
+                      <Figure amount={trade.price} size="sm" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

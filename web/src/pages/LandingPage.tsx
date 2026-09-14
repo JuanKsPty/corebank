@@ -73,23 +73,13 @@ export function LandingPage() {
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              {/* The primary action gets you in, rather than asking you to fill a form
-                  first. Somebody evaluating this should not have to invent an identity
-                  to see a balance, and the state here fills the sign-in form on
-                  arrival, so the button does what it says in one click. */}
               <Button asChild size="lg" className="bg-copper text-white hover:bg-copper/90">
-                <Link to="/entrar" state={{ demo: true }}>
-                  Entrar con la cuenta de prueba
-                </Link>
+                <Link to="/entrar">Entrar</Link>
               </Button>
               <Button asChild variant="outline" size="lg">
                 <Link to="/registro">Crear una cuenta</Link>
               </Button>
             </div>
-
-            <p className="mt-3 text-[0.8125rem] text-ink-faint">
-              La cuenta de prueba entra directo. Crear una te da cuentas vacías.
-            </p>
           </div>
 
           <HoldDemonstration />

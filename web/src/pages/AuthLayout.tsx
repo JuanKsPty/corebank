@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 
 import { Wordmark } from '@/components/Wordmark'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 /**
@@ -49,68 +48,6 @@ export function AuthLayout({
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-/**
- * DemoCredentials fills the form with a seeded customer.
- *
- * Kept even though the panel around it is gone, because it is not information about the
- * product — it is the key to the door. The dataset's passwords are published in the
- * README anyway, and anyone reviewing this who has to copy an account number out of a
- * 2 MB JSON file before they can look at anything is being made to work for no reason.
- * The button says exactly what it does.
- */
-/**
- * The seeded customers, exported so the landing page can send somebody straight in
- * without a second copy of the credentials drifting out of step with this one.
- *
- * The first is the default for one-click entry: one account, so the first screen after
- * signing in is the simple version of the product.
- */
-export const DEMO_ACCOUNTS = [
-  {
-    email: 'ihernandez@email.com',
-    password: 'Isabel2024!',
-    note: '1 cuenta · $32,354.53',
-  },
-  {
-    email: 'andres.perez368@mail.com',
-    password: 'Andrés2024!',
-    note: '3 cuentas · $86,047.62',
-  },
-]
-
-export function DemoCredentials({
-  onUse,
-}: {
-  onUse: (email: string, password: string) => void
-}) {
-  const accounts = DEMO_ACCOUNTS
-
-  return (
-    <div className="rounded-[5px] border border-rule bg-paper-sunken p-3.5">
-      <p className="type-eyebrow">Cuentas de prueba</p>
-      <ul className="mt-2.5 space-y-2">
-        {accounts.map((account) => (
-          <li key={account.email} className="flex items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="type-figure truncate text-[0.75rem]">{account.email}</p>
-              <p className="text-[0.6875rem] text-ink-faint">{account.note}</p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => onUse(account.email, account.password)}
-              className="h-7 shrink-0 px-2.5 text-[0.75rem]"
-            >
-              Usar
-            </Button>
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }
