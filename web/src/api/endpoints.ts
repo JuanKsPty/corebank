@@ -4,8 +4,10 @@ import type {
   AccountType,
   ChatHistory,
   Dashboard,
+  DeviceStatus,
   Me,
   MovementKind,
+  SecurityStatus,
   Session,
   Transaction,
   TransactionPage,
@@ -30,6 +32,39 @@ export const register = (input: {
 }) => request<Session>('/api/auth/register', { method: 'POST', body: input })
 
 export const logout = () => request<void>('/api/auth/logout', { method: 'POST' })
+
+export const loginPin = (pin: string) =>
+  request<Session>('/api/auth/login-pin', { method: 'POST', body: { pin } })
+
+/**
+ * Asks, before anything is typed, whether this browser is trusted for PIN
+ * login. Never throws on "not trusted" — that is the ordinary `{ trusted:
+ * false }` response, not a failure.
+ */
+export const fetchDeviceStatus = () => request<DeviceStatus>('/api/auth/device')
+
+// --- security (PIN) -----------------------------------------------------
+
+export const fetchSecurityStatus = () =>
+  request<SecurityStatus>('/api/auth/security/status')
+
+export const setPin = (currentPassword: string, pin: string) =>
+  request<void>('/api/auth/security/pin', {
+    method: 'POST',
+    body: { current_password: currentPassword, pin },
+  })
+
+export const removePin = (currentPassword: string) =>
+  request<void>('/api/auth/security/pin', {
+    method: 'DELETE',
+    body: { current_password: currentPassword },
+  })
+
+export const enableDeviceForPin = () =>
+  request<SecurityStatus>('/api/auth/security/pin/device', { method: 'POST' })
+
+export const disableDeviceForPin = () =>
+  request<void>('/api/auth/security/pin/device', { method: 'DELETE' })
 
 // --- accounts ---------------------------------------------------------------
 

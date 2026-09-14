@@ -58,6 +58,18 @@ export interface Me {
   total_available: Amount
 }
 
+/** Whether this browser can skip straight to a PIN, and whose it is. */
+export interface DeviceStatus {
+  trusted: boolean
+  full_name?: string
+}
+
+/** What the Seguridad screen renders its PIN section from. */
+export interface SecurityStatus {
+  has_pin: boolean
+  device_enabled: boolean
+}
+
 export type MovementKind = 'deposit' | 'withdrawal' | 'transfer' | 'internal_transfer'
 
 export type MovementStatus = 'pending' | 'completed' | 'failed' | 'voided' | 'expired'
