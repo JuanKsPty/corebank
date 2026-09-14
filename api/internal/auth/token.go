@@ -94,33 +94,53 @@ func (t *TokenIssuer) ParseAccessToken(raw string) (uuid.UUID, error) {
 	return userID, nil
 }
 
-// refreshTokenBytes is 32 bytes — 256 bits — of entropy, which puts guessing one
-// out of reach regardless of how fast the check is.
-const refreshTokenBytes = 32
+// opaqueTokenBytes is 32 bytes — 256 bits — of entropy, which puts guessing one
+// out of reach regardless of how fast the check is. Both the refresh token and
+// the device token are this shape: a random string with nothing about it to
+// verify except "does the database have this hash".
+const opaqueTokenBytes = 32
 
-// NewRefreshToken returns a fresh opaque token and the hash to store for it.
-//
-// Refresh tokens are random strings rather than JWTs because they need to be
-// revocable, which means a server-side record either way; once there is a
-// record, a self-describing token buys nothing and only adds a second format to
-// get wrong.
-func NewRefreshToken() (token string, hash string, err error) {
-	raw := make([]byte, refreshTokenBytes)
+// newOpaqueToken returns a fresh random token and its stored hash. Refresh
+// tokens and device tokens are both built from this: they need to be
+// revocable, which means a server-side record either way, and once there is a
+// record, a self-describing token (a JWT, say) buys nothing and only adds a
+// second format to get wrong.
+func newOpaqueToken() (token string, hash string, err error) {
+	raw := make([]byte, opaqueTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
-		return "", "", fmt.Errorf("auth: generating refresh token: %w", err)
+		return "", "", fmt.Errorf("auth: generating token: %w", err)
 	}
 	token = base64.RawURLEncoding.EncodeToString(raw)
-	return token, HashRefreshToken(token), nil
+	return token, hashOpaqueToken(token), nil
 }
 
-// HashRefreshToken is the value stored in the database for a refresh token.
+// hashOpaqueToken is the value stored in the database for a refresh or device
+// token.
 //
 // SHA-256 rather than bcrypt, deliberately. bcrypt's work factor exists to slow
 // down guessing of low-entropy, human-chosen secrets; a 256-bit random value has
 // nothing to guess, so the cost would buy no security and would be paid on every
-// single refresh. What matters here is that the database never holds the usable
-// credential — a leaked dump cannot be replayed as a set of live sessions.
-func HashRefreshToken(token string) string {
+// single refresh or PIN unlock. What matters here is that the database never
+// holds the usable credential — a leaked dump cannot be replayed as a set of
+// live sessions or trusted devices.
+func hashOpaqueToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
+
+// NewRefreshToken returns a fresh opaque token and the hash to store for it.
+func NewRefreshToken() (token string, hash string, err error) { return newOpaqueToken() }
+
+// HashRefreshToken is the value stored in the database for a refresh token.
+func HashRefreshToken(token string) string { return hashOpaqueToken(token) }
+
+// NewDeviceToken returns a fresh opaque token and the hash to store for it.
+//
+// A separate name from NewRefreshToken even though the shape is identical: a
+// device token proves "this browser may unlock a session with a PIN", which is
+// a weaker claim than a refresh token's "this browser has a live session", and
+// the two must never be interchangeable in code that reads either name.
+func NewDeviceToken() (token string, hash string, err error) { return newOpaqueToken() }
+
+// HashDeviceToken is the value stored in the database for a device token.
+func HashDeviceToken(token string) string { return hashOpaqueToken(token) }

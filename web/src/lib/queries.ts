@@ -18,6 +18,7 @@ export const keys = {
   dashboard: ['dashboard'] as const,
   history: (query: HistoryQuery) => ['history', query] as const,
   chat: ['chat'] as const,
+  security: ['security'] as const,
 }
 
 export function useMe() {
@@ -136,5 +137,49 @@ export function useRenameAccount() {
       void queryClient.invalidateQueries({ queryKey: keys.me })
       void queryClient.invalidateQueries({ queryKey: keys.dashboard })
     },
+  })
+}
+
+// --- security (PIN) ----------------------------------------------------
+
+export function useSecurityStatus() {
+  return useQuery({ queryKey: keys.security, queryFn: api.fetchSecurityStatus })
+}
+
+function useSecurityInvalidation() {
+  const queryClient = useQueryClient()
+  return () => queryClient.invalidateQueries({ queryKey: keys.security })
+}
+
+export function useSetPin() {
+  const invalidate = useSecurityInvalidation()
+  return useMutation({
+    mutationFn: ({ currentPassword, pin }: { currentPassword: string; pin: string }) =>
+      api.setPin(currentPassword, pin),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRemovePin() {
+  const invalidate = useSecurityInvalidation()
+  return useMutation({
+    mutationFn: (currentPassword: string) => api.removePin(currentPassword),
+    onSuccess: invalidate,
+  })
+}
+
+export function useEnableDeviceForPin() {
+  const invalidate = useSecurityInvalidation()
+  return useMutation({
+    mutationFn: api.enableDeviceForPin,
+    onSuccess: invalidate,
+  })
+}
+
+export function useDisableDeviceForPin() {
+  const invalidate = useSecurityInvalidation()
+  return useMutation({
+    mutationFn: api.disableDeviceForPin,
+    onSuccess: invalidate,
   })
 }

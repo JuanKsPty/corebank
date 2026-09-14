@@ -1,21 +1,23 @@
 import { CircleAlertIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { fetchDeviceStatus } from '@/api/endpoints'
 import { ApiError } from '@/api/client'
+import type { DeviceStatus } from '@/api/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useSession } from '@/lib/session'
-import { emailProblem, isClean, type Errors } from '@/lib/validate'
+import { emailProblem, isClean, pinProblem, type Errors } from '@/lib/validate'
 import { AuthLayout, AuthLink, DEMO_ACCOUNTS, DemoCredentials } from './AuthLayout'
 
 type FieldName = 'email' | 'password'
 
 export function SignInPage() {
-  const { signIn } = useSession()
+  const { signIn, signInWithPin } = useSession()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -33,6 +35,36 @@ export function SignInPage() {
   const [errors, setErrors] = useState<Errors<FieldName>>({})
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // 'checking' until the one-shot device lookup below resolves. Neither form is
+  // rendered meanwhile — showing the e-mail form first and swapping it for a PIN
+  // greeting a moment later would flash the wrong screen at whoever this device
+  // belongs to.
+  const [device, setDevice] = useState<DeviceStatus | 'checking'>('checking')
+  // Set once the customer explicitly asks for the e-mail form instead of the PIN
+  // this device offers — a shared computer, or someone else's turn to sign in.
+  const [useEmailForm, setUseEmailForm] = useState(false)
+
+  const [pin, setPin] = useState('')
+  const [pinError, setPinError] = useState<string | undefined>()
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const status = await fetchDeviceStatus()
+        if (!cancelled) setDevice(status)
+      } catch {
+        // A device that cannot be confirmed is treated as untrusted rather than
+        // retried: the e-mail form below is always a safe fallback, and trusting
+        // a device the server could not vouch for would not be.
+        if (!cancelled) setDevice({ trusted: false })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Where the customer was headed before the session ended, so an expiry returns
   // them to the page they were on rather than to the dashboard.
@@ -79,6 +111,115 @@ export function SignInPage() {
     }
   }
 
+  async function handlePinSubmit(event: React.FormEvent) {
+    event.preventDefault()
+
+    const problem = pinProblem(pin)
+    setPinError(problem)
+    if (problem) return
+
+    setSubmitting(true)
+    setFailure(null)
+    try {
+      await signInWithPin(pin)
+      navigate(returnTo, { replace: true })
+    } catch (error) {
+      setPin('')
+      if (error instanceof ApiError) {
+        if (error.code === 'device_not_trusted') {
+          // The device itself is dead — too many wrong PINs, or it was disabled
+          // from Seguridad in the meantime. A PIN box that can never work again
+          // is worse than falling back to the form that always does.
+          setDevice({ trusted: false })
+        }
+        setFailure(error)
+      } else {
+        setFailure(
+          new ApiError(0, {
+            code: 'network',
+            message: 'No se pudo conectar con el servidor. Revisa tu conexión.',
+          }),
+        )
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (device === 'checking') {
+    return (
+      <AuthLayout title="Entra a tus cuentas" subtitle="Un momento…" footer={null}>
+        <div className="flex justify-center py-2">
+          <Spinner />
+        </div>
+      </AuthLayout>
+    )
+  }
+
+  const showPinForm = device.trusted && !useEmailForm
+
+  if (showPinForm) {
+    const firstName = device.full_name?.split(' ')[0] ?? ''
+
+    return (
+      <AuthLayout
+        title={firstName ? `Hola, ${firstName}` : 'Bienvenido de nuevo'}
+        subtitle="Ingresa tu PIN para entrar."
+        footer={
+          <button
+            type="button"
+            onClick={() => setUseEmailForm(true)}
+            className="font-medium text-copper underline decoration-copper/35 underline-offset-2 hover:decoration-copper"
+          >
+            Usar mi correo y contraseña
+          </button>
+        }
+      >
+        <form onSubmit={handlePinSubmit} noValidate className="space-y-4">
+          {failure && (
+            <Alert variant="destructive">
+              <CircleAlertIcon />
+              <AlertTitle>
+                {failure.status === 429 ? 'Demasiados intentos' : 'No pudimos entrar'}
+              </AlertTitle>
+              <AlertDescription>{failure.message}</AlertDescription>
+            </Alert>
+          )}
+
+          <Field data-invalid={pinError ? true : undefined}>
+            <FieldLabel htmlFor="pin">PIN</FieldLabel>
+            <Input
+              id="pin"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              autoFocus
+              maxLength={6}
+              value={pin}
+              aria-invalid={pinError ? true : undefined}
+              onChange={(event) => {
+                setPin(event.target.value.replace(/\D/g, '').slice(0, 6))
+                if (pinError) setPinError(undefined)
+              }}
+              placeholder="••••••"
+              className="text-center text-lg tracking-[0.5em]"
+            />
+            {pinError && <FieldError>{pinError}</FieldError>}
+          </Field>
+
+          <Button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-copper text-white hover:bg-copper/90"
+          >
+            {submitting && <Spinner />}
+            {submitting ? 'Entrando' : 'Entrar'}
+          </Button>
+        </form>
+      </AuthLayout>
+    )
+  }
+
   return (
     <AuthLayout
       title="Entra a tus cuentas"
@@ -86,6 +227,19 @@ export function SignInPage() {
       footer={
         <>
           ¿No tienes cuenta? <AuthLink to="/registro">Ábrela en un minuto</AuthLink>.
+          {device.trusted && (
+            <>
+              {' '}
+              <button
+                type="button"
+                onClick={() => setUseEmailForm(false)}
+                className="font-medium text-copper underline decoration-copper/35 underline-offset-2 hover:decoration-copper"
+              >
+                Usar mi PIN
+              </button>
+              .
+            </>
+          )}
         </>
       }
     >
