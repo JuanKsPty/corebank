@@ -1,4 +1,4 @@
-import { ChevronLeftIcon, LogOutIcon } from 'lucide-react'
+import { ChevronLeftIcon, LogOutIcon, ShieldIcon } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { Wordmark } from '@/components/Wordmark'
@@ -74,6 +74,13 @@ export function MobileAppBar() {
                 {user?.full_name}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link to="/seguridad">
+                  <ShieldIcon aria-hidden="true" />
+                  Seguridad
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => void signOut()}>
                 <LogOutIcon aria-hidden="true" />
                 Salir
@@ -106,6 +113,7 @@ function detailTitle(pathname: string): string | null {
   if (pathname.startsWith('/historial')) return 'Historial'
   if (pathname.startsWith('/cuentas/')) return 'Detalle de cuenta'
   if (pathname === '/cuentas') return 'Tus cuentas'
+  if (pathname === '/seguridad') return 'Seguridad'
   return null
 }
 

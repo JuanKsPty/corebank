@@ -26,6 +26,11 @@ const (
 	MaxPasswordBytes  = 72
 )
 
+// PinLength is how many digits a PIN must have. Fixed rather than a range: a
+// range would need padding or truncation rules that a bank PIN has never
+// needed, and six digits is already the usual choice everywhere one is asked.
+const PinLength = 6
+
 var (
 	// ErrInvalidCredentials is returned for both a wrong password and an unknown
 	// e-mail. Distinguishing them would turn the login form into an account
@@ -35,6 +40,14 @@ var (
 	ErrPasswordTooShort = fmt.Errorf("auth: password must be at least %d characters", MinPasswordLength)
 	ErrPasswordTooLong  = fmt.Errorf("auth: password must be at most %d bytes", MaxPasswordBytes)
 	ErrPasswordTooWeak  = errors.New("auth: password must contain a letter and a digit")
+
+	// ErrPinInvalid means the PIN is not exactly PinLength digits.
+	ErrPinInvalid = fmt.Errorf("auth: pin must be exactly %d digits", PinLength)
+
+	// ErrPinIncorrect is its own error, distinct from ErrInvalidCredentials, so a
+	// PIN login failure is never reported with a message that talks about an
+	// e-mail address the PIN screen never asked for.
+	ErrPinIncorrect = errors.New("auth: incorrect pin")
 )
 
 // HashPassword validates a plaintext password against the policy and hashes it.
@@ -88,6 +101,50 @@ func VerifyPassword(hash, plain string) error {
 		// password, and must not be reported as one — it would look like a user
 		// error while an account is quietly unusable.
 		return fmt.Errorf("auth: comparing password hash: %w", err)
+	}
+	return nil
+}
+
+// HashPin validates a PIN against the policy and hashes it. It goes through
+// bcrypt like a password rather than a faster general-purpose hash: the whole
+// point is that guessing a 6-digit PIN must cost the same ~60ms per attempt a
+// password guess does, since a PIN alone has far fewer combinations to guess
+// from.
+func HashPin(plain string, cost int) (string, error) {
+	if err := CheckPinPolicy(plain); err != nil {
+		return "", err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(plain), cost)
+	if err != nil {
+		return "", fmt.Errorf("auth: hashing pin: %w", err)
+	}
+	return string(hash), nil
+}
+
+// CheckPinPolicy reports whether a PIN is acceptable: exactly PinLength ASCII
+// digits, nothing else. Letters or punctuation would work with bcrypt just as
+// well, but the whole interface — a numeric keypad — promises a PIN, and a
+// customer who typed one on a phone would have no way to type anything else.
+func CheckPinPolicy(plain string) error {
+	if len(plain) != PinLength {
+		return ErrPinInvalid
+	}
+	for _, r := range plain {
+		if r < '0' || r > '9' {
+			return ErrPinInvalid
+		}
+	}
+	return nil
+}
+
+// VerifyPin checks a plaintext PIN against a stored hash, returning
+// ErrPinIncorrect on any mismatch.
+func VerifyPin(hash, plain string) error {
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return ErrPinIncorrect
+		}
+		return fmt.Errorf("auth: comparing pin hash: %w", err)
 	}
 	return nil
 }

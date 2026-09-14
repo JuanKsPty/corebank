@@ -122,6 +122,9 @@ func run() error {
 	}, provider, cfg.AI.MaxToolTurns)
 
 	loginLimiter := httpx.NewRateLimiter(cfg.Auth.LoginRateLimit)
+	// Its own limiter, not a shared one with login: a six-digit PIN and a
+	// password defend against different kinds of guessing, at different rates.
+	pinLoginLimiter := httpx.NewRateLimiter(cfg.Auth.PinLoginRateLimit)
 	// The chat gets its own budget: a message costs an upstream API call, which is
 	// a different order of expense from reading a balance.
 	chatLimiter := httpx.NewRateLimiter(chatMessagesPerMinute)
@@ -133,7 +136,7 @@ func run() error {
 			"postgres":    db,
 			"tigerbeetle": book,
 		},
-		Auth:         auth.NewHandler(authSvc, cfg.Env == "production", loginLimiter),
+		Auth:         auth.NewHandler(authSvc, cfg.Env == "production", loginLimiter, pinLoginLimiter),
 		Tokens:       authSvc.Tokens(),
 		Accounts:     accounts.NewHandler(accountsSvc),
 		Transactions: transactions.NewHandler(txSvc),
@@ -143,7 +146,7 @@ func run() error {
 		Chat:         chat.NewHandler(chatSvc, authSvc, chatLimiter),
 	})
 
-	go housekeeping(ctx, authSvc, []*httpx.RateLimiter{loginLimiter, chatLimiter}, logger)
+	go housekeeping(ctx, authSvc, []*httpx.RateLimiter{loginLimiter, pinLoginLimiter, chatLimiter}, logger)
 
 	// Reconciliation runs from the moment the process starts: its first pass is
 	// what recovers movements left unresolved by whatever caused the last restart.

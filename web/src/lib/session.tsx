@@ -22,6 +22,7 @@ interface SessionValue {
   status: Status
   user: User | null
   signIn: (email: string, password: string) => Promise<void>
+  signInWithPin: (pin: string) => Promise<void>
   signUp: (input: {
     email: string
     password: string
@@ -87,6 +88,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       user,
       async signIn(email, password) {
         const session = await api.login(email, password)
+        setAccessToken(session.access_token)
+        setUser(session.user)
+        setStatus('signed-in')
+      },
+      async signInWithPin(pin) {
+        const session = await api.loginPin(pin)
         setAccessToken(session.access_token)
         setUser(session.user)
         setStatus('signed-in')

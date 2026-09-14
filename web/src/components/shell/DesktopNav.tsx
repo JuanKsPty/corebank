@@ -1,4 +1,4 @@
-import { LogOutIcon, SparklesIcon } from 'lucide-react'
+import { LogOutIcon, ShieldIcon, SparklesIcon } from 'lucide-react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { useAssistant } from '@/components/assistant/AssistantProvider'
@@ -134,6 +134,13 @@ export function DesktopNav({ className }: { className?: string }) {
               <DropdownMenuLabel className="truncate font-normal text-ink-soft">
                 {user?.full_name}
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link to="/seguridad">
+                  <ShieldIcon aria-hidden="true" />
+                  Seguridad
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => void signOut()}>
                 <LogOutIcon aria-hidden="true" />

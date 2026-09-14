@@ -103,6 +103,57 @@ func TestVerifyDistinguishesACorruptHashFromAWrongPassword(t *testing.T) {
 	}
 }
 
+func TestHashAndVerifyPin(t *testing.T) {
+	const pin = "204719"
+
+	hash, err := HashPin(pin, testCost)
+	if err != nil {
+		t.Fatalf("HashPin: %v", err)
+	}
+	if strings.Contains(hash, pin) {
+		t.Fatal("the hash contains the plaintext pin")
+	}
+	if err := VerifyPin(hash, pin); err != nil {
+		t.Errorf("VerifyPin with the right pin: %v", err)
+	}
+	if err := VerifyPin(hash, "000000"); !errors.Is(err, ErrPinIncorrect) {
+		t.Errorf("VerifyPin with the wrong pin returned %v, want ErrPinIncorrect", err)
+	}
+}
+
+func TestPinPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pin  string
+		want error
+	}{
+		{"ok", "204719", nil},
+		{"all zeros is still six digits", "000000", nil},
+		{"five digits", "20471", ErrPinInvalid},
+		{"seven digits", "2047199", ErrPinInvalid},
+		{"contains a letter", "20471a", ErrPinInvalid},
+		{"contains a space", "2047 9", ErrPinInvalid},
+		{"empty", "", ErrPinInvalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckPinPolicy(tc.pin)
+			if !errors.Is(err, tc.want) {
+				t.Errorf("CheckPinPolicy(%q) = %v, want %v", tc.pin, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestVerifyPinDistinguishesACorruptHashFromAWrongPin(t *testing.T) {
+	err := VerifyPin("not-a-bcrypt-hash", "204719")
+	if err == nil {
+		t.Fatal("a corrupt hash was accepted")
+	}
+	if errors.Is(err, ErrPinIncorrect) {
+		t.Error("a corrupt hash was reported as an incorrect pin")
+	}
+}
+
 func TestTimingEqualiserCostsTheSameAsARealCheck(t *testing.T) {
 	// The property that matters is that the decoy is hashed at the same cost as
 	// a real password, since that is what makes the two paths take the same

@@ -42,6 +42,13 @@ export function passwordProblem(value: string): string | undefined {
   return undefined
 }
 
+/** Mirrors the server's policy: exactly 6 digits, nothing else. */
+export function pinProblem(value: string): string | undefined {
+  if (!value) return 'El PIN es obligatorio.'
+  if (!/^\d{6}$/.test(value)) return 'El PIN debe tener exactamente 6 dígitos.'
+  return undefined
+}
+
 export function fullNameProblem(value: string): string | undefined {
   const name = value.trim()
   if (!name) return 'El nombre es obligatorio.'

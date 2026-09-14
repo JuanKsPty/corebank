@@ -65,6 +65,16 @@ type AuthConfig struct {
 	BcryptCost      int
 	// LoginRateLimit is the number of login attempts allowed per IP per minute.
 	LoginRateLimit int
+	// PinLoginRateLimit is the same idea for /login-pin, kept separate from
+	// LoginRateLimit because the two endpoints defend against different things:
+	// a password's keyspace against an e-mail sweep, versus a six-digit PIN
+	// against whoever is holding a stolen device cookie.
+	PinLoginRateLimit int
+	// DeviceTTL is how long a device stays trusted for PIN login after being
+	// enabled from the Seguridad screen, absent any activity that would refresh
+	// it. Long, because re-proving a device is exactly the friction PIN login
+	// exists to remove.
+	DeviceTTL time.Duration
 }
 
 type AIConfig struct {
@@ -155,10 +165,15 @@ func Load() (Config, error) {
 			ConnectWait: duration("TB_CONNECT_WAIT", 30*time.Second, fail),
 		},
 		Auth: AuthConfig{
-			AccessTTL:      duration("ACCESS_TOKEN_TTL", 15*time.Minute, fail),
-			RefreshTTL:     duration("REFRESH_TOKEN_TTL", 720*time.Hour, fail),
-			BcryptCost:     number("BCRYPT_COST", 10, fail),
-			LoginRateLimit: number("LOGIN_RATE_LIMIT", 10, fail),
+			AccessTTL:         duration("ACCESS_TOKEN_TTL", 15*time.Minute, fail),
+			RefreshTTL:        duration("REFRESH_TOKEN_TTL", 720*time.Hour, fail),
+			BcryptCost:        number("BCRYPT_COST", 10, fail),
+			LoginRateLimit:    number("LOGIN_RATE_LIMIT", 10, fail),
+			PinLoginRateLimit: number("PIN_LOGIN_RATE_LIMIT", 15, fail),
+			// 180 days: long enough that "trusted this device" means something,
+			// short enough that a device nobody has touched in half a year is not
+			// trusted forever.
+			DeviceTTL: duration("DEVICE_TOKEN_TTL", 4320*time.Hour, fail),
 		},
 		AI: AIConfig{
 			APIKey:  str("ANTHROPIC_API_KEY", ""),
