@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
+	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
 	"github.com/JuanKsPty/corebank/api/internal/identity"
 	"github.com/JuanKsPty/corebank/api/internal/ledger"
@@ -49,6 +50,9 @@ func (h *Handler) Routes() http.Handler {
 	// works identically whether the proposal came from the chat or anywhere else.
 	r.Post("/{hold_id}/confirm", h.confirm)
 	r.Post("/{hold_id}/cancel", h.cancel)
+	// A separate id space from hold_id above: this one addresses the movement
+	// itself, and works on a completed movement just as well as a pending one.
+	r.Patch("/{id}/category", h.setCategory)
 	return r
 }
 
@@ -257,6 +261,47 @@ func (h *Handler) resolve(w http.ResponseWriter, r *http.Request,
 	httpx.JSON(w, r, http.StatusOK, newView(tx))
 }
 
+type categoryRequest struct {
+	// CategoryID is a pointer so JSON `null` (clear the category) is
+	// distinguishable from the field being omitted, which httpx.Decode's
+	// DisallowUnknownFields already treats as a client mistake elsewhere but
+	// which here would otherwise silently do nothing.
+	CategoryID *string `json:"category_id"`
+}
+
+func (h *Handler) setCategory(w http.ResponseWriter, r *http.Request) {
+	var req categoryRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Fail(w, r, httpx.NotFound("transaction_not_found", "El movimiento no existe."))
+		return
+	}
+
+	var categoryID *uuid.UUID
+	if req.CategoryID != nil {
+		parsed, err := uuid.Parse(*req.CategoryID)
+		if err != nil {
+			httpx.Fail(w, r, httpx.Invalid(map[string]string{
+				"category_id": "El identificador de la categoría no es válido.",
+			}))
+			return
+		}
+		categoryID = &parsed
+	}
+
+	tx, err := h.svc.SetCategory(r.Context(), identity.MustFromContext(r.Context()), id, categoryID)
+	if err != nil {
+		httpx.Fail(w, r, translate(err))
+		return
+	}
+	httpx.JSON(w, r, http.StatusOK, newView(tx))
+}
+
 func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
 	h.serveHistory(w, r, r.URL.Query().Get("account_number"))
 }
@@ -358,6 +403,14 @@ func translate(err error) error {
 	case errors.Is(err, ErrIdempotencyMismatch):
 		return httpx.Conflict("idempotency_key_reused",
 			"Ya usaste este Idempotency-Key para otra operación distinta.").WithCause(err)
+
+	case errors.Is(err, ErrTransactionNotFound):
+		return httpx.NotFound("transaction_not_found", "El movimiento no existe.").WithCause(err)
+
+	case errors.Is(err, categories.ErrNotFound), errors.Is(err, categories.ErrNotOwned):
+		return httpx.Invalid(map[string]string{
+			"category_id": "La categoría no existe.",
+		}).WithCause(err)
 
 	default:
 		return accounts.TranslateError(err)

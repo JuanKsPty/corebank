@@ -19,9 +19,12 @@ import (
 
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
 	"github.com/JuanKsPty/corebank/api/internal/auth"
+	"github.com/JuanKsPty/corebank/api/internal/bankimport"
+	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/chat"
 	"github.com/JuanKsPty/corebank/api/internal/config"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
+	"github.com/JuanKsPty/corebank/api/internal/investments"
 	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/llm"
 	"github.com/JuanKsPty/corebank/api/internal/logging"
@@ -98,13 +101,16 @@ func run() error {
 	logger.Info("ledger ready", "addresses", cfg.TB.Addresses)
 
 	accountsSvc := accounts.NewService(db, book)
+	categoriesSvc := categories.NewService(db)
 
-	authSvc, err := auth.NewService(db, accountsSvc, cfg.Auth)
+	authSvc, err := auth.NewService(db, accountsSvc, categoriesSvc, cfg.Auth)
 	if err != nil {
 		return err
 	}
 
-	txSvc := transactions.NewService(db, book, accountsSvc, cfg.AI.HoldTTL)
+	txSvc := transactions.NewService(db, book, accountsSvc, categoriesSvc, cfg.AI.HoldTTL)
+	investmentsSvc := investments.NewService(db, accountsSvc, txSvc, cfg.IBKR.TokenEncryptionKey)
+	bankImportSvc := bankimport.NewService(db, categoriesSvc)
 
 	// The assistant is built from whichever engine is available, and which one it
 	// is stays visible: without an API key the rule-based fallback drives the same
@@ -131,6 +137,9 @@ func run() error {
 		Tokens:       authSvc.Tokens(),
 		Accounts:     accounts.NewHandler(accountsSvc),
 		Transactions: transactions.NewHandler(txSvc),
+		Categories:   categories.NewHandler(categoriesSvc),
+		Investments:  investments.NewHandler(investmentsSvc),
+		BankImport:   bankimport.NewHandler(bankImportSvc),
 		Chat:         chat.NewHandler(chatSvc, authSvc, chatLimiter),
 	})
 

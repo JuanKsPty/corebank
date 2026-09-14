@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
+	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/money"
@@ -47,19 +48,27 @@ var (
 	// Returning the first result would be wrong — the caller asked for something
 	// else — so it is refused instead.
 	ErrIdempotencyMismatch = errors.New("transactions: idempotency key reused with different parameters")
+
+	// ErrTransactionNotFound means no movement matches that id, or it touches
+	// none of the caller's own accounts. The two are deliberately reported
+	// identically, for the same reason accounts.ErrNotOwned is folded into
+	// ErrNotFound at the HTTP layer: telling them apart would let a client
+	// probe for valid transaction ids.
+	ErrTransactionNotFound = errors.New("transactions: transaction not found")
 )
 
 // Service performs and records movements.
 type Service struct {
-	db       *store.DB
-	book     ledger.Ledger
-	accounts *accounts.Service
-	holdTTL  time.Duration
-	now      func() time.Time
+	db         *store.DB
+	book       ledger.Ledger
+	accounts   *accounts.Service
+	categories *categories.Service
+	holdTTL    time.Duration
+	now        func() time.Time
 }
 
-func NewService(db *store.DB, book ledger.Ledger, accts *accounts.Service, holdTTL time.Duration) *Service {
-	return &Service{db: db, book: book, accounts: accts, holdTTL: holdTTL, now: time.Now}
+func NewService(db *store.DB, book ledger.Ledger, accts *accounts.Service, cats *categories.Service, holdTTL time.Duration) *Service {
+	return &Service{db: db, book: book, accounts: accts, categories: cats, holdTTL: holdTTL, now: time.Now}
 }
 
 // HoldTTL is how long a reservation survives without an answer.
@@ -185,6 +194,66 @@ func (s *Service) Confirm(ctx context.Context, userID uuid.UUID, holdID uuid.UUI
 // Cancel releases a reservation: the funds return to the source and nothing moved.
 func (s *Service) Cancel(ctx context.Context, userID uuid.UUID, holdID uuid.UUID) (store.Transaction, error) {
 	return s.resolveHold(ctx, userID, holdID, false)
+}
+
+// SetCategory files a movement under one of the caller's own categories, or
+// clears it when categoryID is nil.
+//
+// This is metadata only — nothing here touches the ledger or the movement's
+// amount, kind or accounts — but the two ownership checks still matter: the
+// movement has to be one that touches an account of the caller's, and the
+// category has to be one the caller created, or a customer could label
+// somebody else's spending, or file their own under a category that leaks
+// which categories another customer happens to have.
+func (s *Service) SetCategory(ctx context.Context, userID, transactionID uuid.UUID, categoryID *uuid.UUID) (store.Transaction, error) {
+	row, err := s.db.Q().TransactionByID(ctx, transactionID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return store.Transaction{}, fmt.Errorf("%w: %s", ErrTransactionNotFound, transactionID)
+		}
+		return store.Transaction{}, err
+	}
+	owns, err := s.ownsMovement(ctx, userID, row)
+	if err != nil {
+		return store.Transaction{}, err
+	}
+	if !owns {
+		return store.Transaction{}, fmt.Errorf("%w: %s", ErrTransactionNotFound, transactionID)
+	}
+
+	if categoryID != nil {
+		if _, err := s.categories.Get(ctx, userID, *categoryID); err != nil {
+			return store.Transaction{}, err
+		}
+	}
+
+	if err := s.db.Q().SetTransactionCategory(ctx, transactionID, categoryID); err != nil {
+		return store.Transaction{}, err
+	}
+	row.CategoryID = categoryID
+	return row, nil
+}
+
+// ownsMovement reports whether one side of a movement is an account userID
+// holds. A transfer's row is shared between both parties — one from_account,
+// one to_account — so either side qualifies; the sentinel EXTERNAL side of a
+// deposit or withdrawal never resolves to anyone and is skipped rather than
+// treated as a lookup failure.
+func (s *Service) ownsMovement(ctx context.Context, userID uuid.UUID, row store.Transaction) (bool, error) {
+	for _, number := range []string{row.FromAccount, row.ToAccount} {
+		if number == "" || number == store.ExternalAccount {
+			continue
+		}
+		switch _, err := s.accounts.Resolve(ctx, userID, number); {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, accounts.ErrNotFound), errors.Is(err, accounts.ErrNotOwned):
+			continue
+		default:
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // --- internals --------------------------------------------------------------
@@ -563,8 +632,10 @@ func defaultDescription(given, fallback string) string {
 }
 
 func originOrDefault(origin string) string {
-	if origin == store.OriginChat {
-		return store.OriginChat
+	switch origin {
+	case store.OriginChat, store.OriginIBKRSync:
+		return origin
+	default:
+		return store.OriginAPI
 	}
-	return store.OriginAPI
 }

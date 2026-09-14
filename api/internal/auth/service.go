@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
+	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/config"
 	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/logging"
@@ -34,26 +35,28 @@ type Session struct {
 
 // Service issues and ends sessions, and registers new customers.
 type Service struct {
-	db       *store.DB
-	accounts *accounts.Service
-	tokens   *TokenIssuer
-	cfg      config.AuthConfig
-	equalise timingEqualiser
-	now      func() time.Time
+	db         *store.DB
+	accounts   *accounts.Service
+	categories *categories.Service
+	tokens     *TokenIssuer
+	cfg        config.AuthConfig
+	equalise   timingEqualiser
+	now        func() time.Time
 }
 
-func NewService(db *store.DB, accts *accounts.Service, cfg config.AuthConfig) (*Service, error) {
+func NewService(db *store.DB, accts *accounts.Service, cats *categories.Service, cfg config.AuthConfig) (*Service, error) {
 	equalise, err := newTimingEqualiser(cfg.BcryptCost)
 	if err != nil {
 		return nil, err
 	}
 	return &Service{
-		db:       db,
-		accounts: accts,
-		tokens:   NewTokenIssuer(cfg.JWTSecret, cfg.AccessTTL),
-		cfg:      cfg,
-		equalise: equalise,
-		now:      time.Now,
+		db:         db,
+		accounts:   accts,
+		categories: cats,
+		tokens:     NewTokenIssuer(cfg.JWTSecret, cfg.AccessTTL),
+		cfg:        cfg,
+		equalise:   equalise,
+		now:        time.Now,
 	}, nil
 }
 
@@ -104,6 +107,12 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Session, erro
 		// for one and inventing a name on their behalf would be putting words in
 		// their mouth. The interface labels it by its type until they say otherwise.
 		if _, err := s.accounts.Open(ctx, q, userID, in.AccountKind, ""); err != nil {
+			return err
+		}
+		// Seeded in the same transaction for the same reason the first account is:
+		// a customer who exists but cannot categorise a single transaction is not a
+		// state worth allowing even momentarily.
+		if err := s.categories.SeedDefaults(ctx, q, userID); err != nil {
 			return err
 		}
 		return nil

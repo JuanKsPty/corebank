@@ -20,9 +20,12 @@ import (
 
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
 	"github.com/JuanKsPty/corebank/api/internal/auth"
+	"github.com/JuanKsPty/corebank/api/internal/bankimport"
+	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/chat"
 	"github.com/JuanKsPty/corebank/api/internal/config"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
+	"github.com/JuanKsPty/corebank/api/internal/investments"
 	"github.com/JuanKsPty/corebank/api/internal/transactions"
 )
 
@@ -40,6 +43,9 @@ type Deps struct {
 	Tokens       *auth.TokenIssuer
 	Accounts     *accounts.Handler
 	Transactions *transactions.Handler
+	Categories   *categories.Handler
+	Investments  *investments.Handler
+	BankImport   *bankimport.Handler
 	Chat         *chat.Handler
 }
 
@@ -76,6 +82,14 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/dashboard/summary", d.Transactions.Dashboard)
 			r.Mount("/accounts", d.Accounts.Routes(d.Transactions.AccountHistory))
 			r.Mount("/transactions", d.Transactions.Routes())
+			r.Mount("/categories", d.Categories.Routes())
+			r.Mount("/investments", d.Investments.Routes())
+			r.Mount("/external-accounts", d.BankImport.Routes())
+			// Mounted at the transaction's own URL, not under
+			// /external-accounts, for the same reason
+			// transactions/{id}/category sits under /transactions rather
+			// than under /accounts.
+			r.Patch("/external-transactions/{id}/category", d.BankImport.SetCategory)
 			r.Mount("/chat", d.Chat.Routes())
 		})
 

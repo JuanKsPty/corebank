@@ -9,6 +9,7 @@ package config
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,7 @@ type Config struct {
 	TB   TigerBeetleConfig
 	Auth AuthConfig
 	AI   AIConfig
+	IBKR IBKRConfig
 	Log  LogConfig
 	Seed SeedConfig
 }
@@ -95,6 +97,24 @@ type AIConfig struct {
 // Enabled reports whether the chat assistant can reach a model. When false the
 // rest of the application is unaffected and the chat endpoint says so plainly.
 func (c AIConfig) Enabled() bool { return c.APIKey != "" }
+
+// IBKRConfig holds the key that encrypts an IBKR Flex Web Service token at
+// rest.
+//
+// Unlike AuthConfig.JWTSecret, this key is never generated when unset: a
+// random JWT secret only costs existing sessions on restart, but a random
+// encryption key would make every previously stored token permanently
+// undecryptable the moment the process restarted. So a missing key simply
+// leaves the feature unavailable — SetLink refuses with a clear error —
+// rather than silently corrupting data.
+type IBKRConfig struct {
+	// TokenEncryptionKey is 32 raw bytes (AES-256), decoded from base64. Empty
+	// when unset.
+	TokenEncryptionKey []byte
+}
+
+// Enabled reports whether IBKR tokens can be encrypted and, therefore, stored.
+func (c IBKRConfig) Enabled() bool { return len(c.TokenEncryptionKey) > 0 }
 
 type LogConfig struct {
 	Level  string // debug | info | warn | error
@@ -201,6 +221,20 @@ func Load() (Config, error) {
 	}
 	if cfg.AI.MaxToolTurns < 1 {
 		fail("AI_MAX_TOOL_TURNS must be at least 1, got %d", cfg.AI.MaxToolTurns)
+	}
+
+	// Optional, like the AI key: an empty value leaves the IBKR link feature
+	// disabled rather than failing the boot, since most deployments of this
+	// codebase (the public demo included) will never set it.
+	if raw := strings.TrimSpace(os.Getenv("IBKR_TOKEN_ENCRYPTION_KEY")); raw != "" {
+		key, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			fail("IBKR_TOKEN_ENCRYPTION_KEY must be base64-encoded: %w", err)
+		} else if len(key) != 32 {
+			fail("IBKR_TOKEN_ENCRYPTION_KEY must decode to 32 bytes (AES-256), got %d", len(key))
+		} else {
+			cfg.IBKR.TokenEncryptionKey = key
+		}
 	}
 
 	if len(errs) > 0 {
