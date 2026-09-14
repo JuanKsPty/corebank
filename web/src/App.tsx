@@ -8,6 +8,7 @@ import { AccountPage } from '@/pages/AccountPage'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { HistoryPage } from '@/pages/HistoryPage'
+import { ImportPage } from '@/pages/ImportPage'
 import { LandingPage } from '@/pages/LandingPage'
 import { MovePage } from '@/pages/MovePage'
 import { SecurityPage } from '@/pages/SecurityPage'
@@ -41,6 +42,7 @@ export function App() {
         <Route path="/historial" element={<RedirectToSignIn />} />
         <Route path="/cuentas/:number" element={<RedirectToSignIn />} />
         <Route path="/seguridad" element={<RedirectToSignIn />} />
+        <Route path="/importar" element={<RedirectToSignIn />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     )
@@ -58,6 +60,7 @@ export function App() {
         <Route path="/historial" element={<HistoryPage />} />
         <Route path="/cuentas/:number" element={<AccountPage />} />
         <Route path="/seguridad" element={<SecurityPage />} />
+        <Route path="/importar" element={<ImportPage />} />
         <Route path="/" element={<Navigate to="/panel" replace />} />
         {/* Somebody who signed in from the login page lands on their accounts rather
             than on a form they no longer need. */}

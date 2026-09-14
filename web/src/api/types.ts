@@ -243,6 +243,73 @@ export interface InvestmentTrade {
   trade_date: string
 }
 
+// --- bank import ---------------------------------------------------------------
+
+/**
+ * A bank or card account imported from a statement file, not one of corebank's own.
+ *
+ * Never carries a balance: nothing here is verified against a live source the way
+ * a TigerBeetle account is, so a "balance" would just be a sum of whatever rows
+ * happened to be imported — declared, not verified.
+ */
+export interface ExternalAccount {
+  id: string
+  institution: 'banco_general' | 'bac'
+  account_number: string
+  display_name: string
+  currency: string
+  created_at: string
+}
+
+export interface ExternalTransaction {
+  id: string
+  occurred_at: string
+  amount: Amount
+  description: string
+  external_ref?: string
+  category_id?: string
+}
+
+export interface ImportBatch {
+  id: string
+  filename: string
+  format: string
+  row_count: number
+  imported: number
+  skipped_duplicates: number
+  created_at: string
+}
+
+/** What one upload did, returned straight from `POST /api/external-accounts/import`. */
+export interface ImportResult {
+  external_account_id: string
+  format: string
+  total_rows: number
+  imported: number
+  skipped_duplicates: number
+}
+
+export interface CategorySpend {
+  category_id?: string
+  amount_cents: number
+}
+
+// --- categories ------------------------------------------------------------------
+
+export interface Category {
+  id: string
+  parent_id?: string
+  name: string
+  kind: 'income' | 'expense'
+  color?: string
+  icon?: string
+  is_system: boolean
+}
+
+export interface CategoryNode extends Category {
+  children: Category[]
+}
+
 /** One server-sent event from the chat stream. */
 export type ChatEvent =
   | { kind: 'message'; text: string }

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/table'
 import { accountLabel, accountTypeAside, accountTypeLabel, formatDate } from '@/lib/format'
 import {
+  useAccountTotal,
   useHistory,
   useInvestmentLink,
   useInvestmentTrades,
@@ -57,6 +58,7 @@ export function AccountPage() {
   const accounts = me.data?.accounts ?? []
   const account = accounts.find((candidate) => candidate.account_number === number)
   const ownedAccounts = new Set(accounts.map((candidate) => candidate.account_number))
+  const { total, cash, showTotal } = useAccountTotal(account)
 
   // Only once the account list has actually loaded does "not found" mean anything.
   if (!me.isLoading && !account) {
@@ -96,9 +98,21 @@ export function AccountPage() {
               {accountLabel(account)} · abierta el {formatDate(account.created_at)}
             </p>
             <h1 className="mt-1.5">
-              <span className="sr-only">Saldo disponible: </span>
-              <Figure amount={account.available} size="display" className="type-display" />
+              <span className="sr-only">
+                {showTotal ? 'Valor total de la cuenta: ' : 'Saldo disponible: '}
+              </span>
+              <Figure
+                amount={showTotal && total ? total : account.available}
+                size="display"
+                className="type-display"
+                tone={showTotal ? 'copper' : 'ink'}
+              />
             </h1>
+            {showTotal && (
+              <p className="type-figure mt-1 text-[0.8125rem] text-ink-soft">
+                Efectivo disponible: <Figure amount={cash ?? account.available} size="sm" />
+              </p>
+            )}
             <p className="type-figure mt-1 text-[0.875rem] text-ink-soft">
               {account.account_number}
               {accountTypeAside(account) && (

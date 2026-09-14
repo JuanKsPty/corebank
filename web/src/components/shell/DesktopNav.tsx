@@ -1,4 +1,4 @@
-import { LogOutIcon, ShieldIcon, SparklesIcon } from 'lucide-react'
+import { LogOutIcon, ShieldIcon, SparklesIcon, UploadIcon } from 'lucide-react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { useAssistant } from '@/components/assistant/AssistantProvider'
@@ -139,6 +139,12 @@ export function DesktopNav({ className }: { className?: string }) {
                 <Link to="/seguridad">
                   <ShieldIcon aria-hidden="true" />
                   Seguridad
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/importar">
+                  <UploadIcon aria-hidden="true" />
+                  Importar
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

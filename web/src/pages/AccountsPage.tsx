@@ -3,7 +3,7 @@ import { ChevronRightIcon, PlusIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
-import type { AccountType } from '@/api/types'
+import type { Account, AccountType } from '@/api/types'
 import { BalanceComposition, Figure } from '@/components/primitives'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { accountLabel, accountTypeAside, formatDate } from '@/lib/format'
-import { useMe, useOpenAccount } from '@/lib/queries'
+import { useAccountTotal, useHoldingsValue, useMe, useOpenAccount } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { MAX_ALIAS } from '@/lib/validate'
 
@@ -44,6 +44,10 @@ const TYPES: Array<{ value: AccountType; label: string; blurb: string }> = [
 export function AccountsPage() {
   const me = useMe()
   const accounts = me.data?.accounts ?? []
+  const investmentAccountNumbers = accounts
+    .filter((account) => account.account_type === 'investment')
+    .map((account) => account.account_number)
+  const { holdings } = useHoldingsValue(investmentAccountNumbers)
 
   return (
     <div className="space-y-6">
@@ -72,66 +76,108 @@ export function AccountsPage() {
           <ul className="grid gap-3 sm:grid-cols-2">
             {accounts.map((account) => (
               <li key={account.id}>
-                <Link
-                  to={`/cuentas/${account.account_number}`}
-                  className={cn(
-                    'card group flex h-full flex-col p-5 transition-colors hover:border-ink-faint',
-                    account.held.cents > 0 && 'border-hold/45',
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-[0.9375rem] font-medium">
-                        {accountLabel(account)}
-                      </p>
-                      <p className="type-figure mt-0.5 text-[0.75rem] text-ink-faint">
-                        {account.account_number}
-                        {accountTypeAside(account) && (
-                          <span className="font-sans"> · {accountTypeAside(account)}</span>
-                        )}
-                      </p>
-                    </div>
-                    <ChevronRightIcon
-                      className="mt-0.5 size-4 shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5"
-                      aria-hidden="true"
-                    />
-                  </div>
-
-                  <p className="mt-4">
-                    <Figure amount={account.available} size="lg" />
-                  </p>
-                  <p className="type-eyebrow mt-1">Disponible</p>
-
-                  {account.held.cents > 0 && (
-                    <div className="mt-4">
-                      <BalanceComposition
-                        posted={account.posted}
-                        held={account.held}
-                        available={account.available}
-                      />
-                    </div>
-                  )}
-
-                  <p className="mt-auto pt-4 text-[0.75rem] text-ink-faint">
-                    Abierta el {formatDate(account.created_at)}
-                  </p>
-                </Link>
+                <AccountCard account={account} />
               </li>
             ))}
           </ul>
 
           {me.data && (
-            <p className="flex items-baseline gap-2 border-t border-rule pt-4 text-[0.875rem] text-ink-soft">
-              <span>
-                {accounts.length === 1 ? '1 cuenta' : `${accounts.length} cuentas`} · total
-                disponible
-              </span>
-              <Figure amount={me.data.total_available} size="sm" />
-            </p>
+            <div className="space-y-1 border-t border-rule pt-4 text-[0.875rem] text-ink-soft">
+              <p className="flex items-baseline gap-2">
+                <span>
+                  {accounts.length === 1 ? '1 cuenta' : `${accounts.length} cuentas`} ·
+                  total disponible
+                </span>
+                <Figure amount={me.data.total_available} size="sm" />
+              </p>
+              {holdings.cents > 0 && (
+                <p className="flex items-baseline gap-2">
+                  <span>Patrimonio total (incluye inversiones)</span>
+                  <Figure
+                    amount={{
+                      cents: me.data.total_available.cents + holdings.cents,
+                      formatted: (
+                        (me.data.total_available.cents + holdings.cents) /
+                        100
+                      ).toFixed(2),
+                      currency: 'USD',
+                    }}
+                    size="sm"
+                    tone="copper"
+                  />
+                </p>
+              )}
+            </div>
           )}
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * One account's card in the list.
+ *
+ * Its own component, not inline in the `.map()` above, because a linked investment
+ * account needs its own hook calls (`useInvestmentLink`/`usePortfolio`, via
+ * `useAccountTotal`) to know whether to show its IBKR total instead of its cash
+ * balance — and hooks can't be called a variable number of times per render.
+ */
+function AccountCard({ account }: { account: Account }) {
+  const { total, cash, showTotal } = useAccountTotal(account)
+
+  return (
+    <Link
+      to={`/cuentas/${account.account_number}`}
+      className={cn(
+        'card group flex h-full flex-col p-5 transition-colors hover:border-ink-faint',
+        account.held.cents > 0 && 'border-hold/45',
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[0.9375rem] font-medium">{accountLabel(account)}</p>
+          <p className="type-figure mt-0.5 text-[0.75rem] text-ink-faint">
+            {account.account_number}
+            {accountTypeAside(account) && (
+              <span className="font-sans"> · {accountTypeAside(account)}</span>
+            )}
+          </p>
+        </div>
+        <ChevronRightIcon
+          className="mt-0.5 size-4 shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5"
+          aria-hidden="true"
+        />
+      </div>
+
+      <p className="mt-4">
+        <Figure
+          amount={showTotal && total ? total : account.available}
+          size="lg"
+          tone={showTotal ? 'copper' : 'ink'}
+        />
+      </p>
+      <p className="type-eyebrow mt-1">{showTotal ? 'Total' : 'Disponible'}</p>
+      {showTotal && (
+        <p className="type-figure mt-1 text-[0.75rem] text-ink-faint">
+          Efectivo: <Figure amount={cash ?? account.available} size="sm" />
+        </p>
+      )}
+
+      {account.held.cents > 0 && (
+        <div className="mt-4">
+          <BalanceComposition
+            posted={account.posted}
+            held={account.held}
+            available={account.available}
+          />
+        </div>
+      )}
+
+      <p className="mt-auto pt-4 text-[0.75rem] text-ink-faint">
+        Abierta el {formatDate(account.created_at)}
+      </p>
+    </Link>
   )
 }
 

@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { accountLabel, accountTypeAside, formatDate } from '@/lib/format'
-import { useDashboard } from '@/lib/queries'
+import { useAccountTotal, useDashboard, useHoldingsValue } from '@/lib/queries'
 import { useSession } from '@/lib/session'
 
 /**
@@ -57,6 +57,10 @@ export function DashboardPage() {
   const ownedAccounts = new Set(
     (data?.accounts ?? []).map((account) => account.account_number),
   )
+  const investmentAccountNumbers = (data?.accounts ?? [])
+    .filter((account) => account.account_type === 'investment')
+    .map((account) => account.account_number)
+  const { holdings } = useHoldingsValue(investmentAccountNumbers)
 
   return (
     <div className="space-y-6">
@@ -85,6 +89,21 @@ export function DashboardPage() {
               available={data.total_available}
             />
           </div>
+        )}
+
+        {data && holdings.cents > 0 && (
+          <p className="mt-3 flex items-baseline gap-2 text-[0.875rem] text-ink-soft">
+            <span>Patrimonio total (incluye inversiones)</span>
+            <Figure
+              amount={{
+                cents: data.total_available.cents + holdings.cents,
+                formatted: ((data.total_available.cents + holdings.cents) / 100).toFixed(2),
+                currency: 'USD',
+              }}
+              size="sm"
+              tone="copper"
+            />
+          </p>
         )}
       </section>
 
@@ -217,6 +236,7 @@ export function DashboardPage() {
 
 function AccountCard({ account }: { account: Account }) {
   const held = account.held.cents > 0
+  const { total, cash, showTotal } = useAccountTotal(account)
 
   return (
     <Link
@@ -237,8 +257,17 @@ function AccountCard({ account }: { account: Account }) {
       </div>
 
       <p className="mt-2.5">
-        <Figure amount={account.available} size="lg" />
+        <Figure
+          amount={showTotal && total ? total : account.available}
+          size="lg"
+          tone={showTotal ? 'copper' : 'ink'}
+        />
       </p>
+      {showTotal && (
+        <p className="type-figure mt-0.5 text-[0.6875rem] text-ink-faint">
+          Efectivo: <Figure amount={cash ?? account.available} size="sm" />
+        </p>
+      )}
 
       {held ? (
         <p className="mt-1 flex items-center gap-1.5 text-[0.75rem] text-hold">
