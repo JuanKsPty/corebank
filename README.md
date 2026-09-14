@@ -669,12 +669,17 @@ El demo corre en cuatro piezas, y cada frontera existe por un motivo:
 |---|---|
 | **PostgreSQL** | Recurso gestionado. La API la alcanza por nombre DNS: pgx resuelve hostnames. |
 | **TigerBeetle** | Su data file se formatea **exactamente una vez** y hacerlo dos veces destruye el ledger, así que queda fuera del alcance de un redespliegue de la app. |
-| **API + seeder** | Comparten ciclo de vida: el seeder corre después de que la API migre. Necesitan `seccomp=unconfined`. |
+| **API** | Necesita `seccomp=unconfined`: el cliente Go de TigerBeetle abre su propio `io_uring`. |
 | **web** | No necesita ningún privilegio. **El único contenedor expuesto a internet es el único con el perfil de seguridad por defecto.** |
 
-La API y el seeder van como Compose y no como servicios de Swarm porque **Swarm
+La API va como Compose y no como servicio de Swarm porque **Swarm
 ignora `security_opt`**, y sin él el cliente del ledger aborta al iniciar. El
 frontend sí es un servicio de Swarm, porque no necesita nada de eso.
+
+El seeder del dataset de prueba (`seed/`) ya no forma parte de este despliegue:
+esta instancia corre sobre datos reales, no sobre el dataset de la prueba técnica.
+Sigue existiendo en `docker-compose.yml` para levantar una demo aparte, detrás de
+`--profile seed`.
 
 `deploy/api.compose.yml` describe la pieza de la API tal como se despliega.
 
