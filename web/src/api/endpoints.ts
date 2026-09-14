@@ -5,8 +5,12 @@ import type {
   ChatHistory,
   Dashboard,
   DeviceStatus,
+  InvestmentLinkStatus,
+  InvestmentSyncResult,
+  InvestmentTrade,
   Me,
   MovementKind,
+  Portfolio,
   SecurityStatus,
   Session,
   Transaction,
@@ -186,5 +190,51 @@ export function exportHistoryCSV(query: HistoryQuery = {}) {
 export const fetchChatHistory = () => request<ChatHistory>('/api/chat')
 
 export const clearChat = () => request<void>('/api/chat', { method: 'DELETE' })
+
+// --- investments --------------------------------------------------------------
+
+export const fetchInvestmentLink = (accountNumber: string) =>
+  request<InvestmentLinkStatus>(
+    `/api/investments/accounts/${encodeURIComponent(accountNumber)}/link`,
+  )
+
+/**
+ * Links (or replaces the link of) an investment account to an IBKR Flex Query.
+ *
+ * The token is sent once and never read back — `fetchInvestmentLink` never
+ * returns it, only whether a link exists and how its last sync went.
+ */
+export function linkInvestmentAccount(
+  accountNumber: string,
+  input: { ibkr_account_id: string; flex_query_id: string; flex_token: string },
+) {
+  return request<void>(
+    `/api/investments/accounts/${encodeURIComponent(accountNumber)}/link`,
+    {
+      method: 'PUT',
+      body: input,
+    },
+  )
+}
+
+export function syncInvestmentAccount(accountNumber: string) {
+  return request<InvestmentSyncResult>(
+    `/api/investments/accounts/${encodeURIComponent(accountNumber)}/sync`,
+    { method: 'POST' },
+  )
+}
+
+export function fetchPortfolio(accountNumber: string) {
+  return request<Portfolio>(
+    `/api/investments/accounts/${encodeURIComponent(accountNumber)}/portfolio`,
+  )
+}
+
+export function fetchInvestmentTrades(accountNumber: string, limit?: number) {
+  const qs = limit ? `?limit=${limit}` : ''
+  return request<{ trades: InvestmentTrade[] }>(
+    `/api/investments/accounts/${encodeURIComponent(accountNumber)}/trades${qs}`,
+  )
+}
 
 export { newIdempotencyKey }

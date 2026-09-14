@@ -184,6 +184,65 @@ export interface ApiErrorBody {
   }
 }
 
+// --- investments -------------------------------------------------------------
+
+/** An investment account's IBKR link, or its absence. */
+export interface InvestmentLinkStatus {
+  ibkr_account_id: string
+  /** Absent when the account has never synced. */
+  last_synced_at?: string
+  last_sync_status: 'never' | 'ok' | 'error'
+  /** Only present when `last_sync_status` is `'error'`. */
+  last_sync_error?: string
+}
+
+/** What one sync did — a healthy no-op run looks the same shape as one that moved money. */
+export interface InvestmentSyncResult {
+  cash_movements_posted: number
+  cash_movements_skipped: number
+  trades_recorded: number
+  trades_skipped: number
+  positions: number
+}
+
+/** One holding, as of the account's last sync — not a live quote. */
+export interface InvestmentPosition {
+  symbol: string
+  asset_class: string
+  quantity: number
+  mark_price: Amount
+  market_value: Amount
+  cost_basis: Amount
+  as_of: string
+}
+
+/**
+ * An investment account's value from both of its sources of truth.
+ *
+ * `cash` is what the ledger says — the one number here corebank actually verified.
+ * `holdings_value` is the sum of the positions' own market values, as of the last
+ * sync. They are shown separately for the same reason `BalanceComposition` never
+ * blends settled and held: a figure this app cannot verify must never be folded
+ * into one it can.
+ */
+export interface Portfolio {
+  cash: Amount
+  holdings_value: Amount
+  total_value: Amount
+  positions: InvestmentPosition[]
+}
+
+export interface InvestmentTrade {
+  symbol: string
+  asset_class: string
+  side: 'buy' | 'sell'
+  quantity: number
+  price: Amount
+  commission: Amount
+  net_cash: Amount
+  trade_date: string
+}
+
 /** One server-sent event from the chat stream. */
 export type ChatEvent =
   | { kind: 'message'; text: string }

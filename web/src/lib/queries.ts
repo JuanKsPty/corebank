@@ -18,6 +18,10 @@ export const keys = {
   dashboard: ['dashboard'] as const,
   history: (query: HistoryQuery) => ['history', query] as const,
   chat: ['chat'] as const,
+  investmentLink: (accountNumber: string) => ['investment-link', accountNumber] as const,
+  portfolio: (accountNumber: string) => ['portfolio', accountNumber] as const,
+  investmentTrades: (accountNumber: string) =>
+    ['investment-trades', accountNumber] as const,
   security: ['security'] as const,
 }
 
@@ -136,6 +140,82 @@ export function useRenameAccount() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.me })
       void queryClient.invalidateQueries({ queryKey: keys.dashboard })
+    },
+  })
+}
+
+// --- investments --------------------------------------------------------------
+
+/**
+ * An investment account's IBKR link, or its absence.
+ *
+ * A 404 with code `ibkr_not_linked` is a normal state — "not linked yet" — not a
+ * transient failure, so this never retries. The caller tells the two apart by
+ * checking `error instanceof ApiError && error.code === 'ibkr_not_linked'`.
+ */
+export function useInvestmentLink(accountNumber: string) {
+  return useQuery({
+    queryKey: keys.investmentLink(accountNumber),
+    queryFn: () => api.fetchInvestmentLink(accountNumber),
+    retry: false,
+  })
+}
+
+export function useLinkInvestmentAccount() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      accountNumber,
+      input,
+    }: {
+      accountNumber: string
+      input: { ibkr_account_id: string; flex_query_id: string; flex_token: string }
+    }) => api.linkInvestmentAccount(accountNumber, input),
+    onSuccess: (_, { accountNumber }) => {
+      void queryClient.invalidateQueries({ queryKey: keys.investmentLink(accountNumber) })
+    },
+  })
+}
+
+export function usePortfolio(accountNumber: string, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: keys.portfolio(accountNumber),
+    queryFn: () => api.fetchPortfolio(accountNumber),
+    enabled: options.enabled ?? true,
+  })
+}
+
+export function useInvestmentTrades(
+  accountNumber: string,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: keys.investmentTrades(accountNumber),
+    queryFn: () => api.fetchInvestmentTrades(accountNumber),
+    enabled: options.enabled ?? true,
+  })
+}
+
+/**
+ * Syncs an investment account against its linked IBKR Flex Query.
+ *
+ * A sync posts real deposits/withdrawals for whatever cash movements IBKR
+ * reports, so this invalidates everything `useMoneyInvalidation` does — the
+ * same rule every other money-moving mutation in this file follows — in
+ * addition to the investment-specific queries a sync also changes.
+ */
+export function useSyncInvestmentAccount() {
+  const queryClient = useQueryClient()
+  const invalidateMoney = useMoneyInvalidation()
+
+  return useMutation({
+    mutationFn: (accountNumber: string) => api.syncInvestmentAccount(accountNumber),
+    onSuccess: (_, accountNumber) => {
+      void invalidateMoney()
+      void queryClient.invalidateQueries({ queryKey: keys.portfolio(accountNumber) })
+      void queryClient.invalidateQueries({ queryKey: keys.investmentTrades(accountNumber) })
+      void queryClient.invalidateQueries({ queryKey: keys.investmentLink(accountNumber) })
     },
   })
 }

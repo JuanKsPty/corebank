@@ -57,7 +57,7 @@ export function getAccessToken(): string | null {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   /** An Idempotency-Key, for the endpoints that move money. */
   idempotencyKey?: string
