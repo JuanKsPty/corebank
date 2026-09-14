@@ -1,31 +1,13 @@
-import { CircleAlertIcon, UploadIcon } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { ChevronRightIcon, CircleAlertIcon, UploadIcon } from 'lucide-react'
+import { useRef } from 'react'
+import { Link } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
-import type { ExternalAccount } from '@/api/types'
 import { Figure } from '@/components/primitives'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { formatDate } from '@/lib/format'
-import {
-  useCategories,
-  useExternalAccounts,
-  useExternalTransactions,
-  useImportBankStatement,
-  useImportHistory,
-  useSetExternalTransactionCategory,
-  useSpendByCategory,
-} from '@/lib/queries'
+import { useExternalAccounts, useImportBankStatement } from '@/lib/queries'
 
 const INSTITUTION_LABEL: Record<string, string> = {
   banco_general: 'Banco General',
@@ -45,6 +27,10 @@ const FORMAT_LABEL: Record<string, string> = {
  * belongs to is never chosen by hand: the backend reads the institution and
  * account number straight out of the file itself. That is why this page has no
  * account picker anywhere, upload or otherwise; a file declares its own home.
+ *
+ * Each imported account is its own page (`/importar/:id`) rather than an inline
+ * expand here — a card statement is how some customers actually run their
+ * money, and it earns the same depth of screen a real account gets.
  */
 export function ImportPage() {
   return (
@@ -67,11 +53,6 @@ export function ImportPage() {
 function UploadCard() {
   const upload = useImportBankStatement()
   const inputRef = useRef<HTMLInputElement>(null)
-
-  const handleFile = (file: File | undefined) => {
-    if (!file) return
-    upload.mutate(file)
-  }
 
   const failure = upload.error
   const message =
@@ -103,7 +84,8 @@ function UploadCard() {
           className="sr-only"
           disabled={upload.isPending}
           onChange={(event) => {
-            handleFile(event.target.files?.[0])
+            const file = event.target.files?.[0]
+            if (file) upload.mutate(file)
             // Cleared so choosing the exact same file twice in a row still fires
             // a change event the second time.
             event.target.value = ''
@@ -160,185 +142,34 @@ function ExternalAccountsSection() {
       )}
 
       {accounts.data && accounts.data.accounts.length > 0 && (
-        <div className="space-y-3">
+        <ul className="grid gap-3 sm:grid-cols-2">
           {accounts.data.accounts.map((account) => (
-            <ExternalAccountCard key={account.id} account={account} />
+            <li key={account.id}>
+              <Link
+                to={`/importar/${account.id}`}
+                className="card group flex items-center justify-between gap-3 p-4 transition-colors hover:border-ink-faint"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[0.9375rem] font-medium">
+                    {account.display_name}
+                  </p>
+                  <p className="type-figure mt-0.5 text-[0.75rem] text-ink-faint">
+                    {INSTITUTION_LABEL[account.institution] ?? account.institution} ·{' '}
+                    {account.account_number}
+                  </p>
+                  <p className="mt-2">
+                    <Figure amount={account.declared_balance} size="lg" tone="faint" />
+                  </p>
+                </div>
+                <ChevronRightIcon
+                  className="size-4 shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5"
+                  aria-hidden="true"
+                />
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </section>
-  )
-}
-
-function ExternalAccountCard({ account }: { account: ExternalAccount }) {
-  const [expanded, setExpanded] = useState(false)
-
-  return (
-    <div className="card">
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 p-4 text-left"
-        aria-expanded={expanded}
-      >
-        <div className="min-w-0">
-          <p className="truncate text-[0.9375rem] font-medium">{account.display_name}</p>
-          <p className="type-figure mt-0.5 text-[0.75rem] text-ink-faint">
-            {INSTITUTION_LABEL[account.institution] ?? account.institution} ·{' '}
-            {account.account_number}
-          </p>
-        </div>
-        <span className="shrink-0 text-[0.8125rem] font-medium text-copper">
-          {expanded ? 'Ocultar' : 'Ver movimientos'}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="space-y-5 border-t border-rule px-4 py-4">
-          <ExternalTransactionsTable externalAccountId={account.id} />
-          <ImportHistoryList externalAccountId={account.id} />
-          <SpendByCategoryList externalAccountId={account.id} />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ExternalTransactionsTable({ externalAccountId }: { externalAccountId: string }) {
-  const transactions = useExternalTransactions(externalAccountId)
-  const categories = useCategories()
-  const setCategory = useSetExternalTransactionCategory(externalAccountId)
-
-  // Flattened once for the picker: a parent next to each of its own children,
-  // rather than a second level of <optgroup> nesting the API doesn't need.
-  const categoryOptions = (categories.data?.categories ?? []).flatMap((node) => [
-    node,
-    ...node.children,
-  ])
-
-  if (transactions.isLoading) {
-    return <Skeleton className="h-24 w-full" />
-  }
-
-  if (!transactions.data || transactions.data.transactions.length === 0) {
-    return (
-      <p className="text-[0.8125rem] text-ink-faint">Sin movimientos importados todavía.</p>
-    )
-  }
-
-  return (
-    <div>
-      <p className="type-eyebrow mb-2">Movimientos</p>
-      <div className="overflow-hidden rounded-[5px] border border-rule">
-        <Table className="table-fixed">
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
-                Fecha
-              </TableHead>
-              <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
-                Descripción
-              </TableHead>
-              <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
-                Monto
-              </TableHead>
-              <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
-                Categoría
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {transactions.data.transactions.map((transaction) => (
-              <TableRow key={transaction.id}>
-                <TableCell className="px-3 py-2 text-[0.8125rem] text-ink-soft">
-                  {formatDate(transaction.occurred_at)}
-                </TableCell>
-                <TableCell className="truncate px-3 py-2 text-[0.8125rem]">
-                  {transaction.description}
-                </TableCell>
-                <TableCell className="px-3 py-2 text-right">
-                  <Figure amount={transaction.amount} size="sm" />
-                </TableCell>
-                <TableCell className="px-3 py-2">
-                  <NativeSelect
-                    size="sm"
-                    value={transaction.category_id ?? ''}
-                    disabled={setCategory.isPending || categories.isLoading}
-                    onChange={(event) =>
-                      setCategory.mutate({
-                        transactionId: transaction.id,
-                        categoryId: event.target.value || null,
-                      })
-                    }
-                  >
-                    <NativeSelectOption value="">Sin categoría</NativeSelectOption>
-                    {categoryOptions.map((category) => (
-                      <NativeSelectOption key={category.id} value={category.id}>
-                        {category.name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
-  )
-}
-
-function ImportHistoryList({ externalAccountId }: { externalAccountId: string }) {
-  const history = useImportHistory(externalAccountId)
-
-  if (!history.data || history.data.imports.length === 0) return null
-
-  return (
-    <div>
-      <p className="type-eyebrow mb-2">Historial de importaciones</p>
-      <ul className="space-y-1.5 text-[0.8125rem] text-ink-soft">
-        {history.data.imports.map((batch) => (
-          <li key={batch.id} className="flex items-baseline justify-between gap-3">
-            <span className="truncate">
-              {formatDate(batch.created_at)} · {batch.filename}
-            </span>
-            <span className="type-figure shrink-0 text-ink-faint">
-              {batch.imported}/{batch.row_count}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function SpendByCategoryList({ externalAccountId }: { externalAccountId: string }) {
-  const spend = useSpendByCategory(externalAccountId)
-  const categories = useCategories()
-
-  if (!spend.data || spend.data.spend.length === 0) return null
-
-  const categoryOptions = (categories.data?.categories ?? []).flatMap((node) => [
-    node,
-    ...node.children,
-  ])
-  const nameFor = (categoryId?: string) =>
-    categoryOptions.find((category) => category.id === categoryId)?.name ?? 'Sin categoría'
-
-  return (
-    <div>
-      <p className="type-eyebrow mb-2">Gasto por categoría</p>
-      <ul className="space-y-1.5 text-[0.8125rem]">
-        {spend.data.spend.map((row) => (
-          <li
-            key={row.category_id ?? 'none'}
-            className="flex items-baseline justify-between gap-3"
-          >
-            <span className="text-ink-soft">{nameFor(row.category_id)}</span>
-            <Figure amount={row.amount_cents} size="sm" />
-          </li>
-        ))}
-      </ul>
-    </div>
   )
 }

@@ -3,6 +3,7 @@ import {
   HouseIcon,
   ReceiptTextIcon,
   SparklesIcon,
+  UploadIcon,
   WalletIcon,
   type LucideIcon,
 } from 'lucide-react'
@@ -31,11 +32,12 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { to: '/panel', label: 'Resumen', short: 'Inicio', icon: HouseIcon },
   { to: '/cuentas', label: 'Cuentas', short: 'Cuentas', icon: WalletIcon },
-  // The assistant sits in the exact middle of the tab bar, in the raised slot, because
+  // The assistant sits in the raised slot nearest the middle of the tab bar, because
   // it is the one thing this bank does that the others do not. It has no route: it is a
   // surface that opens over whatever you were looking at, so the balance stays visible
-  // behind it while a reservation is confirmed. Five slots is what puts it in the
-  // centre — with four it was third of four and sat off to one side.
+  // behind it while a reservation is confirmed. Six slots have no exact centre to give
+  // it — two items sit before it and three after, which is as close as an even count
+  // gets — but that still beats sitting off to one side entirely, as it did with four.
   {
     to: '#asistente',
     label: 'Asistente',
@@ -45,6 +47,7 @@ export const NAV: NavItem[] = [
   },
   { to: '/mover', label: 'Mover dinero', short: 'Mover', icon: ArrowLeftRightIcon },
   { to: '/historial', label: 'Historial', short: 'Historial', icon: ReceiptTextIcon },
+  { to: '/importar', label: 'Importar', short: 'Importar', icon: UploadIcon },
 ]
 
 /** The routed sections, for the desktop navbar. */

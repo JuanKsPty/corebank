@@ -18,8 +18,18 @@ import {
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { accountLabel, accountTypeAside, formatDate } from '@/lib/format'
-import { useAccountTotal, useDashboard, useHoldingsValue } from '@/lib/queries'
+import {
+  useAccountTotal,
+  useDashboard,
+  useExternalAccounts,
+  useHoldingsValue,
+} from '@/lib/queries'
 import { useSession } from '@/lib/session'
+
+const INSTITUTION_LABEL: Record<string, string> = {
+  banco_general: 'Banco General',
+  bac: 'BAC',
+}
 
 /**
  * The dashboard.
@@ -162,6 +172,8 @@ export function DashboardPage() {
         )}
       </section>
 
+      <ExternalAccountsSection />
+
       {/* --- the flow chart ---------------------------------------------- */}
       <section aria-labelledby="flujo" className="card p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -231,6 +243,63 @@ export function DashboardPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+/**
+ * Accounts corebank never opened — imported from a statement, a credit card
+ * most often — shown with the same card and grid as the real ones just above.
+ * For a customer who runs their spending from a card, this list is not an
+ * afterthought; only the eyebrow and the balance's tone mark it as declared
+ * rather than verified.
+ */
+function ExternalAccountsSection() {
+  const externalAccounts = useExternalAccounts()
+  const accounts = externalAccounts.data?.accounts ?? []
+
+  if (accounts.length === 0) return null
+
+  return (
+    <section aria-labelledby="cuentas-importadas">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="cuentas-importadas" className="type-eyebrow">
+          Cuentas importadas
+        </h2>
+        <Link
+          to="/importar"
+          className="text-[0.8125rem] font-medium text-copper hover:underline"
+        >
+          Ver todas
+        </Link>
+      </div>
+
+      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {accounts.map((account) => (
+          <li key={account.id}>
+            <Link
+              to={`/importar/${account.id}`}
+              className="card group block p-4 transition-colors hover:border-ink-faint"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="min-w-0 truncate text-[0.8125rem] font-medium">
+                  {account.display_name}
+                </p>
+                <p className="type-figure shrink-0 text-[0.6875rem] text-ink-faint">
+                  {INSTITUTION_LABEL[account.institution] ?? account.institution}
+                </p>
+              </div>
+
+              <p className="mt-2.5">
+                <Figure amount={account.declared_balance} size="lg" tone="faint" />
+              </p>
+              <p className="type-figure mt-1 text-[0.75rem] text-ink-faint">
+                Saldo declarado, no verificado
+              </p>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

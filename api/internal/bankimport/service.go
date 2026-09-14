@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/JuanKsPty/corebank/api/internal/categories"
+	"github.com/JuanKsPty/corebank/api/internal/money"
 	"github.com/JuanKsPty/corebank/api/internal/store"
 )
 
@@ -214,9 +215,49 @@ func (s *Service) loadRules(ctx context.Context, userID uuid.UUID) ([]CategoryRu
 	return out, nil
 }
 
-// Accounts lists a user's imported accounts.
-func (s *Service) Accounts(ctx context.Context, userID uuid.UUID) ([]store.ImportedAccount, error) {
-	return s.db.Q().ImportedAccountsByUser(ctx, userID)
+// Account is an imported account together with its declared balance.
+//
+// DeclaredBalance is a sum over whatever rows happen to be imported, never a
+// figure corebank verified — see the package doc on why it never joins a
+// TigerBeetle-derived total. It still deserves a name distinct from a bare
+// "Balance" for the same reason: nothing here should read as more certain
+// than it is.
+type Account struct {
+	store.ImportedAccount
+	DeclaredBalance money.Cents
+}
+
+// Accounts lists a user's imported accounts, each with its declared balance.
+//
+// One batched balance query for all of them, not one per account — the same
+// shape as accounts.Service.withBalances batching its ledger lookup.
+func (s *Service) Accounts(ctx context.Context, userID uuid.UUID) ([]Account, error) {
+	rows, err := s.db.Q().ImportedAccountsByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+
+	balances, err := s.db.Q().DeclaredBalances(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]Account, 0, len(rows))
+	for _, r := range rows {
+		// An account with nothing imported yet just has no entry — that is a
+		// declared balance of zero, not an error the way a missing ledger
+		// account would be.
+		out = append(out, Account{ImportedAccount: r, DeclaredBalance: money.Cents(balances[r.ID])})
+	}
+	return out, nil
 }
 
 // Transactions lists an account's imported movements.

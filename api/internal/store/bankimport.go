@@ -333,6 +333,39 @@ func (q *Queries) SpendByCategory(ctx context.Context, accountID uuid.UUID) ([]C
 	return out, wrap("store.SpendByCategory", rows.Err())
 }
 
+// DeclaredBalances sums signed amounts per external account, batched into one
+// query for every id requested — the same shape as accounts.Service.withBalances
+// batching its TigerBeetle lookup, applied here to Postgres instead. An account
+// with no imported transactions yet simply has no entry in the returned map.
+func (q *Queries) DeclaredBalances(ctx context.Context, accountIDs []uuid.UUID) (map[uuid.UUID]int64, error) {
+	if len(accountIDs) == 0 {
+		return nil, nil
+	}
+
+	const query = `
+		SELECT external_account_id, sum(amount_cents)
+		FROM external_transactions
+		WHERE external_account_id = ANY($1)
+		GROUP BY external_account_id`
+
+	rows, err := q.q.Query(ctx, query, accountIDs)
+	if err != nil {
+		return nil, wrap("store.DeclaredBalances", err)
+	}
+	defer rows.Close()
+
+	out := make(map[uuid.UUID]int64, len(accountIDs))
+	for rows.Next() {
+		var id uuid.UUID
+		var cents int64
+		if err := rows.Scan(&id, &cents); err != nil {
+			return nil, wrap("store.DeclaredBalances", err)
+		}
+		out[id] = cents
+	}
+	return out, wrap("store.DeclaredBalances", rows.Err())
+}
+
 // --- category rules -----------------------------------------------------------
 
 // CategoryRule is a user's own "if this text appears, use this category"

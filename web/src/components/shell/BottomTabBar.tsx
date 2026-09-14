@@ -36,7 +36,7 @@ export function BottomTabBar() {
         'pb-[env(safe-area-inset-bottom)]',
       )}
     >
-      <ul className="grid grid-cols-5">
+      <ul className="grid grid-cols-6">
         {NAV.map((item) =>
           item.assistant ? (
             <li key={item.to} className="relative flex justify-center">

@@ -19,9 +19,20 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { accountLabel, accountTypeAside, formatDate } from '@/lib/format'
-import { useAccountTotal, useHoldingsValue, useMe, useOpenAccount } from '@/lib/queries'
+import {
+  useAccountTotal,
+  useExternalAccounts,
+  useHoldingsValue,
+  useMe,
+  useOpenAccount,
+} from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { MAX_ALIAS } from '@/lib/validate'
+
+const INSTITUTION_LABEL: Record<string, string> = {
+  banco_general: 'Banco General',
+  bac: 'BAC',
+}
 
 const TYPES: Array<{ value: AccountType; label: string; blurb: string }> = [
   { value: 'savings', label: 'Ahorros', blurb: 'Para guardar' },
@@ -109,8 +120,65 @@ export function AccountsPage() {
               )}
             </div>
           )}
+
+          <ExternalAccountsSection />
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Accounts corebank never opened — imported from a statement, a credit card
+ * most often. They get the same card, the same grid, the same click-through
+ * to a full detail page as a real account: for a customer who runs their
+ * spending from a card rather than a checking account, this is not a
+ * secondary list. What sets a row apart is the eyebrow and the tone of its
+ * balance, not its size or its reach.
+ */
+function ExternalAccountsSection() {
+  const externalAccounts = useExternalAccounts()
+  const accounts = externalAccounts.data?.accounts ?? []
+
+  if (externalAccounts.isLoading || accounts.length === 0) return null
+
+  return (
+    <div className="space-y-3 border-t border-rule pt-6">
+      <h2 className="type-eyebrow">Cuentas importadas</h2>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {accounts.map((account) => (
+          <li key={account.id}>
+            <Link
+              to={`/importar/${account.id}`}
+              className="card group flex h-full flex-col p-5 transition-colors hover:border-ink-faint"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[0.9375rem] font-medium">
+                    {account.display_name}
+                  </p>
+                  <p className="type-figure mt-0.5 text-[0.75rem] text-ink-faint">
+                    {INSTITUTION_LABEL[account.institution] ?? account.institution}
+                  </p>
+                </div>
+                <ChevronRightIcon
+                  className="mt-0.5 size-4 shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5"
+                  aria-hidden="true"
+                />
+              </div>
+
+              <p className="mt-4">
+                <Figure amount={account.declared_balance} size="lg" tone="faint" />
+              </p>
+              <p className="type-eyebrow mt-1">Saldo declarado</p>
+
+              <p className="mt-auto pt-4 text-[0.75rem] text-ink-faint">
+                No verificado por corebank
+              </p>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

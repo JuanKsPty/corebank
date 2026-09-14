@@ -248,9 +248,10 @@ export interface InvestmentTrade {
 /**
  * A bank or card account imported from a statement file, not one of corebank's own.
  *
- * Never carries a balance: nothing here is verified against a live source the way
- * a TigerBeetle account is, so a "balance" would just be a sum of whatever rows
- * happened to be imported — declared, not verified.
+ * `declared_balance` is a sum of whatever rows happened to be imported, never a
+ * figure verified against a live source the way a TigerBeetle account's balance
+ * is — named for what it is so it never gets folded into `total_available` or
+ * shown with the same weight as a ledger figure.
  */
 export interface ExternalAccount {
   id: string
@@ -258,6 +259,7 @@ export interface ExternalAccount {
   account_number: string
   display_name: string
   currency: string
+  declared_balance: Amount
   created_at: string
 }
 
