@@ -11,6 +11,7 @@ import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useSession } from '@/lib/session'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { emailProblem, isClean, pinProblem, type Errors } from '@/lib/validate'
 import { AuthLayout, AuthLink } from './AuthLayout'
 
@@ -23,17 +24,23 @@ export function SignInPage() {
 
   const state = location.state as { from?: string } | null
 
+  const isMobile = useIsMobile()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<Errors<FieldName>>({})
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  // 'checking' until the one-shot device lookup below resolves. Neither form is
-  // rendered meanwhile — showing the e-mail form first and swapping it for a PIN
-  // greeting a moment later would flash the wrong screen at whoever this device
-  // belongs to.
-  const [device, setDevice] = useState<DeviceStatus | 'checking'>('checking')
+  // The PIN is a phone shortcut, on purpose: the point is that a phone stays
+  // unlocked with a keypad while a computer keeps typing a password. So a
+  // desktop never even asks whether this device is trusted — `device` starts
+  // (and, without a phone in the picture, stays) at `{ trusted: false }`
+  // rather than 'checking', which is what lets the e-mail form below render
+  // immediately instead of behind a spinner nobody on a desktop needs.
+  const [device, setDevice] = useState<DeviceStatus | 'checking'>(() =>
+    isMobile ? 'checking' : { trusted: false },
+  )
   // Set once the customer explicitly asks for the e-mail form instead of the PIN
   // this device offers — a shared computer, or someone else's turn to sign in.
   const [useEmailForm, setUseEmailForm] = useState(false)
@@ -42,6 +49,8 @@ export function SignInPage() {
   const [pinError, setPinError] = useState<string | undefined>()
 
   useEffect(() => {
+    if (!isMobile) return
+
     let cancelled = false
     void (async () => {
       try {
@@ -57,7 +66,7 @@ export function SignInPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isMobile])
 
   // Where the customer was headed before the session ended, so an expiry returns
   // them to the page they were on rather than to the dashboard.
@@ -149,7 +158,7 @@ export function SignInPage() {
     )
   }
 
-  const showPinForm = device.trusted && !useEmailForm
+  const showPinForm = isMobile && device.trusted && !useEmailForm
 
   if (showPinForm) {
     const firstName = device.full_name?.split(' ')[0] ?? ''
@@ -220,7 +229,7 @@ export function SignInPage() {
       footer={
         <>
           ¿No tienes cuenta? <AuthLink to="/registro">Ábrela en un minuto</AuthLink>.
-          {device.trusted && (
+          {isMobile && device.trusted && (
             <>
               {' '}
               <button
