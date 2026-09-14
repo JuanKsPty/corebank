@@ -1,10 +1,16 @@
-import { newIdempotencyKey, request, requestFile } from './client'
+import { newIdempotencyKey, request, requestFile, requestUpload } from './client'
 import type {
   Account,
   AccountType,
+  CategoryNode,
+  CategorySpend,
   ChatHistory,
   Dashboard,
   DeviceStatus,
+  ExternalAccount,
+  ExternalTransaction,
+  ImportBatch,
+  ImportResult,
   InvestmentLinkStatus,
   InvestmentSyncResult,
   InvestmentTrade,
@@ -236,5 +242,52 @@ export function fetchInvestmentTrades(accountNumber: string, limit?: number) {
     `/api/investments/accounts/${encodeURIComponent(accountNumber)}/trades${qs}`,
   )
 }
+
+// --- bank import ------------------------------------------------------------
+
+export const fetchExternalAccounts = () =>
+  request<{ accounts: ExternalAccount[] }>('/api/external-accounts')
+
+/**
+ * Uploads a bank statement file. The account it belongs to is never chosen by
+ * hand: the backend reads it straight out of the file itself and creates or
+ * reuses the matching external account.
+ */
+export const importBankStatement = (file: File) =>
+  requestUpload<ImportResult>('/api/external-accounts/import', file)
+
+export function fetchExternalTransactions(externalAccountId: string, limit?: number) {
+  const qs = limit ? `?limit=${limit}` : ''
+  return request<{ transactions: ExternalTransaction[] }>(
+    `/api/external-accounts/${encodeURIComponent(externalAccountId)}/transactions${qs}`,
+  )
+}
+
+export const fetchImportHistory = (externalAccountId: string) =>
+  request<{ imports: ImportBatch[] }>(
+    `/api/external-accounts/${encodeURIComponent(externalAccountId)}/imports`,
+  )
+
+export const fetchSpendByCategory = (externalAccountId: string) =>
+  request<{ spend: CategorySpend[] }>(
+    `/api/external-accounts/${encodeURIComponent(externalAccountId)}/spend-by-category`,
+  )
+
+export const setExternalTransactionCategory = (
+  transactionId: string,
+  categoryId: string | null,
+) =>
+  request<void>(
+    `/api/external-transactions/${encodeURIComponent(transactionId)}/category`,
+    {
+      method: 'PATCH',
+      body: { category_id: categoryId },
+    },
+  )
+
+// --- categories ---------------------------------------------------------------
+
+export const fetchCategories = () =>
+  request<{ categories: CategoryNode[] }>('/api/categories')
 
 export { newIdempotencyKey }

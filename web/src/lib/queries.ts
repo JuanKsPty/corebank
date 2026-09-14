@@ -1,8 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import * as api from '@/api/endpoints'
 import type { HistoryQuery, MovementInput } from '@/api/endpoints'
-import type { AccountType } from '@/api/types'
+import type { Account, AccountType } from '@/api/types'
 
 /**
  * Server state.
@@ -23,6 +23,14 @@ export const keys = {
   investmentTrades: (accountNumber: string) =>
     ['investment-trades', accountNumber] as const,
   security: ['security'] as const,
+  externalAccounts: ['external-accounts'] as const,
+  externalTransactions: (externalAccountId: string) =>
+    ['external-transactions', externalAccountId] as const,
+  importHistory: (externalAccountId: string) =>
+    ['import-history', externalAccountId] as const,
+  spendByCategory: (externalAccountId: string) =>
+    ['spend-by-category', externalAccountId] as const,
+  categories: ['categories'] as const,
 }
 
 export function useMe() {
@@ -153,11 +161,15 @@ export function useRenameAccount() {
  * transient failure, so this never retries. The caller tells the two apart by
  * checking `error instanceof ApiError && error.code === 'ibkr_not_linked'`.
  */
-export function useInvestmentLink(accountNumber: string) {
+export function useInvestmentLink(
+  accountNumber: string,
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: keys.investmentLink(accountNumber),
     queryFn: () => api.fetchInvestmentLink(accountNumber),
     retry: false,
+    enabled: options.enabled ?? true,
   })
 }
 
@@ -220,6 +232,54 @@ export function useSyncInvestmentAccount() {
   })
 }
 
+/**
+ * Whether an account's headline figure should be its IBKR total (cash + holdings)
+ * instead of the ledger cash balance, and both numbers to render either way.
+ *
+ * `total` only appears once the account is a linked investment account and its
+ * portfolio has loaded — a non-investment account, or one not yet linked, simply
+ * gets `showTotal: false` and the caller falls back to `account.available`.
+ */
+export function useAccountTotal(account: Account | undefined) {
+  const isInvestment = account?.account_type === 'investment'
+  const link = useInvestmentLink(account?.account_number ?? '', { enabled: isInvestment })
+  const linked = link.isSuccess && !!link.data
+  const portfolio = usePortfolio(account?.account_number ?? '', {
+    enabled: isInvestment && linked,
+  })
+
+  return {
+    total: portfolio.data?.total_value,
+    cash: account?.available,
+    showTotal: isInvestment && !!portfolio.data,
+  }
+}
+
+/**
+ * The combined holdings value across a set of investment accounts, for the
+ * "patrimonio total" figures on the accounts list and the dashboard.
+ *
+ * An account that isn't linked yet just fails its portfolio fetch (404
+ * `ibkr_not_linked`) and contributes nothing — `retry: false` keeps that from
+ * turning into a burst of pointless retries.
+ */
+export function useHoldingsValue(accountNumbers: string[]) {
+  const results = useQueries({
+    queries: accountNumbers.map((number) => ({
+      queryKey: keys.portfolio(number),
+      queryFn: () => api.fetchPortfolio(number),
+      retry: false,
+    })),
+  })
+
+  const cents = results.reduce(
+    (total, result) => total + (result.data?.holdings_value.cents ?? 0),
+    0,
+  )
+
+  return { holdings: { cents, formatted: (cents / 100).toFixed(2), currency: 'USD' } }
+}
+
 // --- security (PIN) ----------------------------------------------------
 
 export function useSecurityStatus() {
@@ -262,4 +322,96 @@ export function useDisableDeviceForPin() {
     mutationFn: api.disableDeviceForPin,
     onSuccess: invalidate,
   })
+}
+
+// --- bank import ----------------------------------------------------------
+
+export function useExternalAccounts() {
+  return useQuery({ queryKey: keys.externalAccounts, queryFn: api.fetchExternalAccounts })
+}
+
+/**
+ * Uploads a statement file. The account it lands in isn't known until the
+ * response comes back, so this invalidates the whole external-accounts list
+ * rather than one account's queries — a new account may have just been created.
+ */
+export function useImportBankStatement() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (file: File) => api.importBankStatement(file),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: keys.externalAccounts })
+      void queryClient.invalidateQueries({
+        queryKey: keys.externalTransactions(result.external_account_id),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: keys.importHistory(result.external_account_id),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: keys.spendByCategory(result.external_account_id),
+      })
+    },
+  })
+}
+
+export function useExternalTransactions(
+  externalAccountId: string,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: keys.externalTransactions(externalAccountId),
+    queryFn: () => api.fetchExternalTransactions(externalAccountId),
+    enabled: options.enabled ?? true,
+  })
+}
+
+export function useImportHistory(
+  externalAccountId: string,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: keys.importHistory(externalAccountId),
+    queryFn: () => api.fetchImportHistory(externalAccountId),
+    enabled: options.enabled ?? true,
+  })
+}
+
+export function useSpendByCategory(
+  externalAccountId: string,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: keys.spendByCategory(externalAccountId),
+    queryFn: () => api.fetchSpendByCategory(externalAccountId),
+    enabled: options.enabled ?? true,
+  })
+}
+
+export function useSetExternalTransactionCategory(externalAccountId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      transactionId,
+      categoryId,
+    }: {
+      transactionId: string
+      categoryId: string | null
+    }) => api.setExternalTransactionCategory(transactionId, categoryId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: keys.externalTransactions(externalAccountId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: keys.spendByCategory(externalAccountId),
+      })
+    },
+  })
+}
+
+// --- categories -------------------------------------------------------------
+
+export function useCategories() {
+  return useQuery({ queryKey: keys.categories, queryFn: api.fetchCategories })
 }

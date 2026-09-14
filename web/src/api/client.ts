@@ -139,6 +139,36 @@ export async function requestFile(
   return { blob: await response.blob(), filename: match?.[1] }
 }
 
+/**
+ * Uploads a file as `multipart/form-data`, with the same one-shot refresh on a 401.
+ *
+ * No `Content-Type` header is set here — the browser fills it in with the
+ * multipart boundary once it sees the body is a `FormData`, and overriding it by
+ * hand would drop that boundary and break the parse on the server.
+ */
+export async function requestUpload<T>(path: string, file: File): Promise<T> {
+  const upload = async (): Promise<Response> => {
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+    const body = new FormData()
+    body.append('file', file)
+    return fetch(path, { method: 'POST', headers, body, credentials: 'same-origin' })
+  }
+
+  let response = await upload()
+
+  if (response.status === 401) {
+    if (await refreshSession()) {
+      response = await upload()
+    }
+  }
+
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+  return (await response.json()) as T
+}
+
 async function toApiError(response: Response): Promise<ApiError> {
   let body: ApiErrorBody['error'] = {
     code: 'unknown',
