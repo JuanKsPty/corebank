@@ -28,18 +28,38 @@ const refreshCookieName = "corebank_refresh"
 // not attached to every API call.
 const refreshCookiePath = "/api/auth"
 
+// deviceCookieName is the cookie holding the device token that unlocks PIN
+// login. Separate from the refresh cookie because the two claims are
+// different in kind: a refresh token means "this browser has a live
+// session", a device token means only "this browser may try a PIN" — nothing
+// that reads one should ever be able to mistake it for the other.
+const deviceCookieName = "corebank_device"
+
+// deviceCookiePath scopes the device cookie the same way the refresh cookie
+// is scoped, and for the same reason: every endpoint that reads it lives
+// under /api/auth (login-pin, device, and the security/pin endpoints, which
+// share this router precisely so this cookie reaches them).
+const deviceCookiePath = "/api/auth"
+
 // Handler serves the authentication endpoints.
 type Handler struct {
 	svc *Service
-	// secureCookies marks the refresh cookie Secure. Off in development because
-	// the dev server is plain HTTP and a Secure cookie would simply never be
-	// sent, which looks like a broken login rather than a misconfiguration.
-	secureCookies bool
-	loginLimiter  *httpx.RateLimiter
+	// secureCookies marks the refresh and device cookies Secure. Off in
+	// development because the dev server is plain HTTP and a Secure cookie
+	// would simply never be sent, which looks like a broken login rather than a
+	// misconfiguration.
+	secureCookies   bool
+	loginLimiter    *httpx.RateLimiter
+	pinLoginLimiter *httpx.RateLimiter
 }
 
-func NewHandler(svc *Service, production bool, loginLimiter *httpx.RateLimiter) *Handler {
-	return &Handler{svc: svc, secureCookies: production, loginLimiter: loginLimiter}
+func NewHandler(svc *Service, production bool, loginLimiter, pinLoginLimiter *httpx.RateLimiter) *Handler {
+	return &Handler{
+		svc:             svc,
+		secureCookies:   production,
+		loginLimiter:    loginLimiter,
+		pinLoginLimiter: pinLoginLimiter,
+	}
 }
 
 // Routes returns the /api/auth subrouter.
@@ -55,8 +75,34 @@ func (h *Handler) Routes() http.Handler {
 		r.Post("/login", h.login)
 	})
 
+	// login-pin gets its own limiter: a six-digit PIN is a much smaller keyspace
+	// than a password, even though a device token is also required to try one.
+	r.Group(func(r chi.Router) {
+		r.Use(httpx.RateLimit(h.pinLoginLimiter,
+			"Demasiados intentos. Espera un momento antes de volver a intentarlo."))
+		r.Post("/login-pin", h.loginPin)
+	})
+
+	// Public and unthrottled: it only reads a cookie, and there is nothing in
+	// the request for a guesser to vary.
+	r.Get("/device", h.deviceStatus)
+
 	r.Post("/refresh", h.refresh)
 	r.Post("/logout", h.logout)
+
+	// Managing the PIN itself requires an existing session. This group lives on
+	// the same router as login-pin and device — rather than beside /me in the
+	// top-level authenticated group in server.go — specifically so the device
+	// cookie, scoped to /api/auth, reaches these endpoints too.
+	r.Group(func(r chi.Router) {
+		r.Use(Require(h.svc.Tokens()))
+		r.Post("/security/pin", h.setPin)
+		r.Delete("/security/pin", h.removePin)
+		r.Post("/security/pin/device", h.enableDevice)
+		r.Delete("/security/pin/device", h.disableDevice)
+		r.Get("/security/status", h.securityStatus)
+	})
+
 	return r
 }
 
@@ -164,6 +210,34 @@ func (req registerRequest) validate() (RegisterInput, map[string]string) {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type loginPinRequest struct {
+	Pin string `json:"pin"`
+}
+
+// deviceStatusResponse tells the sign-in screen whether this browser may skip
+// straight to a PIN, and whose name to greet before anything is typed.
+type deviceStatusResponse struct {
+	Trusted  bool   `json:"trusted"`
+	FullName string `json:"full_name,omitempty"`
+}
+
+// securityStatusResponse is what the Seguridad screen renders itself from: a
+// PIN either exists or does not, and this device either is or is not the one
+// it can be unlocked from.
+type securityStatusResponse struct {
+	HasPin        bool `json:"has_pin"`
+	DeviceEnabled bool `json:"device_enabled"`
+}
+
+type setPinRequest struct {
+	CurrentPassword string `json:"current_password"`
+	Pin             string `json:"pin"`
+}
+
+type removePinRequest struct {
+	CurrentPassword string `json:"current_password"`
 }
 
 // sessionResponse is what an authenticated client receives.
@@ -284,6 +358,164 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	httpx.NoContent(w)
 }
 
+func (h *Handler) loginPin(w http.ResponseWriter, r *http.Request) {
+	var req loginPinRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	session, err := h.svc.LoginWithPin(r.Context(), h.deviceCookieValue(r), req.Pin)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrDeviceNotTrusted):
+			// Its own code, distinct from "pin_incorrect" below: the two mean
+			// different things to the client. A wrong PIN is worth retrying: the
+			// device is still trusted, only the digits were wrong. This one is
+			// not — the device itself is dead (unknown, expired, or just revoked
+			// for failing too many times) — so the cookie is cleared and the
+			// client should fall back to e-mail and password rather than show
+			// the PIN box again.
+			h.clearDeviceCookie(w)
+			httpx.Fail(w, r, (&httpx.Error{
+				Status:  http.StatusUnauthorized,
+				Code:    "device_not_trusted",
+				Message: "No hay un acceso rápido activo en este dispositivo. Inicia sesión con tu correo y contraseña.",
+			}).WithCause(err))
+		case errors.Is(err, ErrPinIncorrect):
+			httpx.Fail(w, r, (&httpx.Error{
+				Status:  http.StatusUnauthorized,
+				Code:    "pin_incorrect",
+				Message: "El PIN no es correcto.",
+			}).WithCause(err))
+		default:
+			httpx.Fail(w, r, err)
+		}
+		return
+	}
+
+	h.writeSession(w, r, session, http.StatusOK)
+}
+
+// deviceStatus lets the sign-in screen ask, before anything is typed, whether
+// this browser can skip straight to a PIN. Public: it only reads a cookie
+// nothing outside this device could have, so there is no identity to protect
+// by requiring one.
+func (h *Handler) deviceStatus(w http.ResponseWriter, r *http.Request) {
+	fullName, trusted, err := h.svc.DeviceStatus(r.Context(), h.deviceCookieValue(r))
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	httpx.JSON(w, r, http.StatusOK, deviceStatusResponse{Trusted: trusted, FullName: fullName})
+}
+
+func (h *Handler) setPin(w http.ResponseWriter, r *http.Request) {
+	userID := identity.MustFromContext(r.Context())
+
+	var req setPinRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	if err := h.svc.SetPin(r.Context(), userID, req.CurrentPassword, req.Pin); err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidCredentials):
+			httpx.Fail(w, r, httpx.Invalid(map[string]string{
+				"current_password": "La contraseña actual no es correcta.",
+			}).WithCause(err))
+		case errors.Is(err, ErrPinInvalid):
+			httpx.Fail(w, r, httpx.Invalid(map[string]string{
+				"pin": "El PIN debe tener exactamente 6 dígitos.",
+			}).WithCause(err))
+		default:
+			httpx.Fail(w, r, err)
+		}
+		return
+	}
+
+	httpx.NoContent(w)
+}
+
+func (h *Handler) removePin(w http.ResponseWriter, r *http.Request) {
+	userID := identity.MustFromContext(r.Context())
+
+	var req removePinRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	if err := h.svc.RemovePin(r.Context(), userID, req.CurrentPassword); err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			httpx.Fail(w, r, httpx.Invalid(map[string]string{
+				"current_password": "La contraseña actual no es correcta.",
+			}).WithCause(err))
+			return
+		}
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	// Removing the PIN revokes every trusted device server-side; clearing this
+	// one's cookie too means the browser that just did it stops offering a PIN
+	// screen on its own next visit, rather than failing once against a device
+	// the server already forgot.
+	h.clearDeviceCookie(w)
+	httpx.NoContent(w)
+}
+
+func (h *Handler) enableDevice(w http.ResponseWriter, r *http.Request) {
+	userID := identity.MustFromContext(r.Context())
+
+	token, expiresAt, err := h.svc.EnableDeviceForPin(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, ErrPinNotSet) {
+			httpx.Fail(w, r, httpx.Conflict("pin_not_set", "Primero configura un PIN.").WithCause(err))
+			return
+		}
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	h.writeDeviceCookie(w, token, expiresAt)
+	httpx.JSON(w, r, http.StatusCreated, securityStatusResponse{HasPin: true, DeviceEnabled: true})
+}
+
+func (h *Handler) disableDevice(w http.ResponseWriter, r *http.Request) {
+	userID := identity.MustFromContext(r.Context())
+
+	if err := h.svc.DisableDeviceForPin(r.Context(), userID, h.deviceCookieValue(r)); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	h.clearDeviceCookie(w)
+	httpx.NoContent(w)
+}
+
+func (h *Handler) securityStatus(w http.ResponseWriter, r *http.Request) {
+	userID := identity.MustFromContext(r.Context())
+
+	user, err := h.svc.Me(r.Context(), userID)
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	deviceEnabled, err := h.svc.DeviceHasPin(r.Context(), userID, h.deviceCookieValue(r))
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	httpx.JSON(w, r, http.StatusOK, securityStatusResponse{
+		HasPin:        user.PinHash != nil,
+		DeviceEnabled: deviceEnabled,
+	})
+}
+
 // --- cookie handling --------------------------------------------------------
 
 func (h *Handler) writeSession(w http.ResponseWriter, r *http.Request, s Session, status int) {
@@ -314,6 +546,45 @@ func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 		Name:     refreshCookieName,
 		Value:    "",
 		Path:     refreshCookiePath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.secureCookies,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// deviceCookieValue reads the raw device token, or "" if none is present —
+// callers treat an absent cookie exactly like an invalid one, so there is no
+// error to return here.
+func (h *Handler) deviceCookieValue(r *http.Request) string {
+	cookie, err := r.Cookie(deviceCookieName)
+	if err != nil {
+		return ""
+	}
+	return cookie.Value
+}
+
+func (h *Handler) writeDeviceCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     deviceCookieName,
+		Value:    token,
+		Path:     deviceCookiePath,
+		Expires:  expiresAt,
+		MaxAge:   int(time.Until(expiresAt).Seconds()),
+		HttpOnly: true,
+		Secure:   h.secureCookies,
+		// Lax for the same reason the refresh cookie is: it is only ever read by
+		// this app's own POSTs, and Strict would drop it when the customer
+		// arrives from an external link.
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (h *Handler) clearDeviceCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     deviceCookieName,
+		Value:    "",
+		Path:     deviceCookiePath,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   h.secureCookies,

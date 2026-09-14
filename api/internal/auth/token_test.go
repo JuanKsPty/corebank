@@ -165,3 +165,30 @@ func TestRefreshTokensAreUniqueAndStoredHashed(t *testing.T) {
 		t.Errorf("token is %d characters, want 43 (256 bits)", len(first))
 	}
 }
+
+func TestDeviceTokensAreUniqueAndStoredHashed(t *testing.T) {
+	first, firstHash, err := NewDeviceToken()
+	if err != nil {
+		t.Fatalf("NewDeviceToken: %v", err)
+	}
+	second, secondHash, err := NewDeviceToken()
+	if err != nil {
+		t.Fatalf("NewDeviceToken: %v", err)
+	}
+
+	if first == second {
+		t.Fatal("two device tokens came out identical")
+	}
+	if firstHash == secondHash {
+		t.Error("two distinct tokens hashed to the same value")
+	}
+	if strings.Contains(firstHash, first) || firstHash == first {
+		t.Error("the stored value contains the usable token")
+	}
+	if HashDeviceToken(first) != firstHash {
+		t.Error("hashing the same token twice gave different results")
+	}
+	if len(first) != 43 {
+		t.Errorf("token is %d characters, want 43 (256 bits)", len(first))
+	}
+}

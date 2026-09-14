@@ -15,6 +15,9 @@ type User struct {
 	PasswordHash string
 	FullName     string
 	CreatedAt    time.Time
+	// PinHash is nil until the customer opts into PIN login from the Seguridad
+	// screen. Like PasswordHash, it never appears in any response shape.
+	PinHash *string
 }
 
 // UsersEmailConstraint is the unique index on users.email, named so a caller can
@@ -44,31 +47,42 @@ func (q *Queries) CreateUser(ctx context.Context, u User) (User, error) {
 // normalisation step every caller has to remember.
 func (q *Queries) UserByEmail(ctx context.Context, email string) (User, error) {
 	const query = `
-		SELECT id, email, password_hash, full_name, created_at
+		SELECT id, email, password_hash, full_name, created_at, pin_hash
 		FROM users WHERE email = $1`
 
 	var u User
 	err := q.q.QueryRow(ctx, query, email).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.CreatedAt)
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.CreatedAt, &u.PinHash)
 	if err != nil {
 		return User{}, wrap("store.UserByEmail", err)
 	}
 	return u, nil
 }
 
-// UserByID loads the authenticated user for /api/me.
+// UserByID loads the authenticated user for /api/me and for the customer
+// behind a device or PIN.
 func (q *Queries) UserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	const query = `
-		SELECT id, email, password_hash, full_name, created_at
+		SELECT id, email, password_hash, full_name, created_at, pin_hash
 		FROM users WHERE id = $1`
 
 	var u User
 	err := q.q.QueryRow(ctx, query, id).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.CreatedAt)
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.CreatedAt, &u.PinHash)
 	if err != nil {
 		return User{}, wrap("store.UserByID", err)
 	}
 	return u, nil
+}
+
+// SetUserPin creates, changes or removes a customer's PIN. A nil hash removes
+// it — the same UPDATE either way, so there is one code path instead of a
+// second for deletion.
+func (q *Queries) SetUserPin(ctx context.Context, userID uuid.UUID, pinHash *string) error {
+	const query = `UPDATE users SET pin_hash = $2 WHERE id = $1`
+
+	_, err := q.q.Exec(ctx, query, userID, pinHash)
+	return wrap("store.SetUserPin", err)
 }
 
 // EmailExists reports whether an address is already registered.
