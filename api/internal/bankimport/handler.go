@@ -223,6 +223,10 @@ func translate(err error) error {
 		return httpx.Invalid(map[string]string{
 			"account_number": "Esta cuenta ya está vinculada a otro estado de cuenta importado.",
 		}).WithCause(err)
+	case errors.Is(err, ErrStatementBelongsToAnotherAccount):
+		return httpx.Invalid(map[string]string{
+			"account_number": "Este estado de cuenta ya pertenece a otra de tus cuentas.",
+		}).WithCause(err)
 	case errors.Is(err, categories.ErrNotFound), errors.Is(err, categories.ErrNotOwned):
 		return httpx.Invalid(map[string]string{"category_id": "La categoría no existe."}).WithCause(err)
 	default:

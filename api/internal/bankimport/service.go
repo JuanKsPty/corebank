@@ -48,6 +48,14 @@ var (
 	// bank statement, so picking the wrong one here would otherwise merge
 	// two unrelated real-world accounts' histories together silently.
 	ErrAccountAlreadyLinked = errors.New("bankimport: account already linked to a different external account")
+
+	// ErrStatementBelongsToAnotherAccount means a repeat import named a
+	// target account that disagrees with the one this external account was
+	// already linked to on its first import. The mirror image of
+	// ErrAccountAlreadyLinked: that one catches "this account is already
+	// someone else's file", this one catches "this file is already a
+	// different account's".
+	ErrStatementBelongsToAnotherAccount = errors.New("bankimport: statement already belongs to a different account")
 )
 
 // Service imports bank statement files and serves the accounts and
@@ -308,10 +316,14 @@ func (s *Service) seedOpeningBalance(ctx context.Context, userID uuid.UUID, acco
 // itself) declares, creating it on first sight. A card is always Postgres-
 // only, as it always has been; a bank account is now linked to one of the
 // customer's real corebank accounts the first time it is seen, so every
-// later import of the same file is fully automatic.
+// later import of the same file is fully automatic — no picker, no manual
+// entry, just drop the file again.
 func (s *Service) findOrCreateAccount(ctx context.Context, userID uuid.UUID, parser Parser, hint AccountHint, targetAccountNumber string) (store.ImportedAccount, bool, error) {
 	existing, err := s.db.Q().ImportedAccountByHint(ctx, userID, hint.Institution, hint.AccountNumber)
 	if err == nil {
+		if err := s.verifyTarget(ctx, userID, existing, targetAccountNumber); err != nil {
+			return store.ImportedAccount{}, false, err
+		}
 		return existing, false, nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
@@ -346,6 +358,35 @@ func (s *Service) findOrCreateAccount(ctx context.Context, userID uuid.UUID, par
 		return store.ImportedAccount{}, false, err
 	}
 	return created, true, nil
+}
+
+// verifyTarget checks a repeat import's target, if one was given, against
+// where this external account was already linked on its first import.
+//
+// A repeat import normally carries no target at all — the point of linking
+// once is that every later import is "just drop the file" — but a caller
+// (the same dialog that offers the picker on first sight) may still send
+// one out of habit. Silently ignoring a mismatched choice would hide
+// exactly the kind of mistake the picker's guard exists to catch, just
+// approached from the other direction: not "this account already belongs
+// to a different file" but "this file already belongs to a different
+// account".
+func (s *Service) verifyTarget(ctx context.Context, userID uuid.UUID, existing store.ImportedAccount, targetAccountNumber string) error {
+	if targetAccountNumber == "" || existing.LinkedAccountID == nil {
+		return nil
+	}
+
+	account, err := s.accounts.Resolve(ctx, userID, targetAccountNumber)
+	if err != nil {
+		if errors.Is(err, accounts.ErrNotFound) || errors.Is(err, accounts.ErrNotOwned) {
+			return fmt.Errorf("%w: %s", ErrTargetAccountNotFound, targetAccountNumber)
+		}
+		return err
+	}
+	if account.ID != *existing.LinkedAccountID {
+		return fmt.Errorf("%w: %s", ErrStatementBelongsToAnotherAccount, targetAccountNumber)
+	}
+	return nil
 }
 
 // linkRealAccount resolves or opens the real corebank account a bank-account
