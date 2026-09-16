@@ -1,9 +1,10 @@
-import { CircleAlertIcon, PencilIcon } from 'lucide-react'
+import { CircleAlertIcon, PencilIcon, UploadIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
 import type { Account, InvestmentLinkStatus } from '@/api/types'
+import { ImportStatementDialog } from '@/components/ImportStatementDialog'
 import { MovementList } from '@/components/MovementList'
 import { BalanceComposition, Figure } from '@/components/primitives'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -121,6 +122,9 @@ export function AccountPage() {
             </p>
 
             <RenameAccount account={account} />
+            {account.account_type !== 'investment' && (
+              <ImportStatementAction account={account} />
+            )}
 
             <div className="mt-5 max-w-xl">
               <BalanceComposition
@@ -301,6 +305,31 @@ function RenameAccount({ account }: { account: Account }) {
         </p>
       )}
     </form>
+  )
+}
+
+/**
+ * Importing a bank statement, from the account it belongs to.
+ *
+ * The target is never a choice here — it is this account, unlike the same
+ * dialog opened from the accounts list, which has no account to imply and
+ * always opens a new one for a bank-account file. Hidden on an investment
+ * account, which links through IBKR instead (InvestmentSection, below)
+ * rather than a statement file.
+ */
+function ImportStatementAction({ account }: { account: Account }) {
+  return (
+    <div className="mt-3">
+      <ImportStatementDialog
+        account={account}
+        trigger={
+          <Button variant="outline" size="sm">
+            <UploadIcon aria-hidden="true" />
+            Importar estado de cuenta
+          </Button>
+        }
+      />
+    </div>
   )
 }
 
