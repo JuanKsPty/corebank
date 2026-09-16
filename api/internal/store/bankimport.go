@@ -30,6 +30,10 @@ type ImportedAccount struct {
 const (
 	ImportedAccountsConstraint          = "external_accounts_user_id_institution_account_number_key"
 	ExternalTransactionsDedupConstraint = "external_transactions_external_account_id_dedup_key_key"
+	// ImportedAccountLinkedConstraint is the partial unique index that keeps
+	// a real account from being linked_account_id on more than one
+	// external_accounts row at once.
+	ImportedAccountLinkedConstraint = "external_accounts_linked_account_id_idx"
 )
 
 // CreateImportedAccount registers a bank account a file's own AccountHint
@@ -96,6 +100,22 @@ func (q *Queries) ImportedAccountByID(ctx context.Context, id uuid.UUID) (Import
 	a, err := scanImportedAccount(q.q.QueryRow(ctx, query, id))
 	if err != nil {
 		return ImportedAccount{}, wrap("store.ImportedAccountByID", err)
+	}
+	return a, nil
+}
+
+// ImportedAccountByLinkedAccountID finds the external account already
+// linked to a real one, if any — a friendly pre-check before attempting a
+// link that the unique index would refuse anyway, so the caller can say
+// which external account is holding it rather than just "conflict".
+func (q *Queries) ImportedAccountByLinkedAccountID(ctx context.Context, accountID uuid.UUID) (ImportedAccount, error) {
+	const query = `
+		SELECT id, user_id, institution, account_number, display_name, currency, linked_account_id, created_at
+		FROM external_accounts WHERE linked_account_id = $1`
+
+	a, err := scanImportedAccount(q.q.QueryRow(ctx, query, accountID))
+	if err != nil {
+		return ImportedAccount{}, wrap("store.ImportedAccountByLinkedAccountID", err)
 	}
 	return a, nil
 }
