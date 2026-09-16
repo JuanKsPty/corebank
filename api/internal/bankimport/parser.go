@@ -1,19 +1,28 @@
 // Package bankimport turns a bank's own export file into transactions
 // corebank can track spend against.
 //
-// An imported account is never a TigerBeetle account — see the package doc
-// in internal/investments for the same rule applied to a brokerage. Nothing
-// here can verify what a bank's file claims, so treating it as ledger money
-// would contradict corebank's central invariant. Instead, every row lands in
-// Postgres only, in external_transactions, clearly separate from the
-// TigerBeetle-derived balances the dashboard trusts.
+// A card statement stays exactly what it always was: an account corebank
+// never opened and never verifies, whose rows land in Postgres only, in
+// external_transactions, clearly separate from the TigerBeetle-derived
+// balances the dashboard trusts — see internal/investments' package doc for
+// the same non-cash split applied to a brokerage's positions and trades.
+//
+// A bank *account* statement (checking or savings, from Banco General or
+// BAC) is different: the first time one is seen, it is linked to one of the
+// customer's own real corebank accounts — either one the caller names or a
+// new one opened automatically — and every row after that is posted through
+// the ordinary deposit/withdraw path (internal/transactions), the same one a
+// customer's own movement takes. That is the same choice
+// internal/investments already makes for an IBKR sync's settled cash: the
+// file is the customer's own real activity at another institution, not a
+// claim from a stranger, so it earns the same trust a live deposit does.
 //
 // Three real formats are supported directly, discovered by inspecting actual
 // exports rather than guessing at a generic shape: a Banco General credit
-// card statement (bgcard.go), a Banco General account movement export
-// (bgaccount.go), and a BAC account movement export (bacaccount.go). A file
-// matching none of them falls back to a configurable column-mapped CSV
-// parser for a bank not seen yet.
+// card statement (bgcard.go, never linked), a Banco General account movement
+// export (bgaccount.go, linked), and a BAC account movement export
+// (bacaccount.go, linked). A file matching none of them falls back to a
+// configurable column-mapped CSV parser for a bank not seen yet.
 package bankimport
 
 import (

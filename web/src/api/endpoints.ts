@@ -249,12 +249,20 @@ export const fetchExternalAccounts = () =>
   request<{ accounts: ExternalAccount[] }>('/api/external-accounts')
 
 /**
- * Uploads a bank statement file. The account it belongs to is never chosen by
- * hand: the backend reads it straight out of the file itself and creates or
- * reuses the matching external account.
+ * Uploads a bank statement file. Which external account it belongs to is
+ * never chosen by hand — the backend reads that straight out of the file
+ * itself. accountNumber is a separate, optional choice that only matters the
+ * first time a bank-account statement's external account is seen: which of
+ * the customer's own real accounts to link it to. Omitted, one opens
+ * automatically. Ignored for a card statement and for a repeat import of an
+ * account already linked.
  */
-export const importBankStatement = (file: File) =>
-  requestUpload<ImportResult>('/api/external-accounts/import', file)
+export const importBankStatement = (file: File, accountNumber?: string) =>
+  requestUpload<ImportResult>(
+    '/api/external-accounts/import',
+    file,
+    accountNumber ? { account_number: accountNumber } : undefined,
+  )
 
 export function fetchExternalTransactions(externalAccountId: string, limit?: number) {
   const qs = limit ? `?limit=${limit}` : ''

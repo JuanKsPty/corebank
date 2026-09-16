@@ -92,6 +92,22 @@ func (q *Queries) AccountByNumber(ctx context.Context, number string) (Account, 
 	return a, nil
 }
 
+// AccountByID looks up a single account by its row id regardless of owner —
+// used where a caller already holds an id it stored itself (bankimport's
+// linked_account_id, say) rather than a number a customer typed in, so there
+// is nothing left to authorise a second time.
+func (q *Queries) AccountByID(ctx context.Context, id uuid.UUID) (Account, error) {
+	const query = `
+		SELECT id, user_id, account_number, ledger_id, account_type, alias, currency, created_at
+		FROM accounts WHERE id = $1`
+
+	a, err := scanAccount(q.q.QueryRow(ctx, query, id))
+	if err != nil {
+		return Account{}, wrap("store.AccountByID", err)
+	}
+	return a, nil
+}
+
 // UpdateAccountAlias sets what the customer calls an account.
 //
 // Keyed by account number and not by owner: authorisation happens at the service

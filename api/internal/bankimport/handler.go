@@ -110,18 +110,31 @@ func (h *Handler) importFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.Import(r.Context(), identity.MustFromContext(r.Context()), header.Filename, data)
+	// Optional, and only meaningful the first time this file's account is
+	// seen: which of the customer's own accounts a bank-account statement
+	// (never a card) should be linked to. Left empty, one is opened
+	// automatically. r.FormValue reads from the multipart form already
+	// parsed above, so no second parse is needed.
+	targetAccountNumber := r.FormValue("account_number")
+
+	result, err := h.svc.Import(r.Context(), identity.MustFromContext(r.Context()), header.Filename, data, targetAccountNumber)
 	if err != nil {
 		httpx.Fail(w, r, translate(err))
 		return
 	}
-	httpx.JSON(w, r, http.StatusOK, importResultView{
+
+	view := importResultView{
 		ExternalAccountID: result.ImportedAccountID.String(),
 		Format:            result.Format,
 		TotalRows:         result.TotalRows,
 		Imported:          result.Imported,
 		SkippedDuplicates: result.SkippedDuplicates,
-	})
+		IsCard:            result.IsCard,
+	}
+	if result.LinkedAccountNumber != "" {
+		view.LinkedAccountNumber = &result.LinkedAccountNumber
+	}
+	httpx.JSON(w, r, http.StatusOK, view)
 }
 
 func (h *Handler) transactions(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +215,10 @@ func translate(err error) error {
 	case errors.Is(err, ErrUnrecognisedFormat):
 		return httpx.Unprocessable("format_not_recognised",
 			"No se reconoce el formato de este archivo.").WithCause(err)
+	case errors.Is(err, ErrTargetAccountNotFound):
+		return httpx.Invalid(map[string]string{
+			"account_number": "Esa cuenta no existe.",
+		}).WithCause(err)
 	case errors.Is(err, categories.ErrNotFound), errors.Is(err, categories.ErrNotOwned):
 		return httpx.Invalid(map[string]string{"category_id": "La categoría no existe."}).WithCause(err)
 	default:

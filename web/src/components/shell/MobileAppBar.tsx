@@ -114,8 +114,7 @@ function detailTitle(pathname: string): string | null {
   if (pathname.startsWith('/cuentas/')) return 'Detalle de cuenta'
   if (pathname === '/cuentas') return 'Tus cuentas'
   if (pathname === '/seguridad') return 'Seguridad'
-  if (pathname.startsWith('/importar/')) return 'Cuenta importada'
-  if (pathname === '/importar') return 'Importar'
+  if (pathname.startsWith('/tarjetas/')) return 'Tarjeta'
   return null
 }
 

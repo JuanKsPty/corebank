@@ -5,12 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 
+	"github.com/JuanKsPty/corebank/api/internal/accounts"
 	"github.com/JuanKsPty/corebank/api/internal/categories"
+	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/money"
 	"github.com/JuanKsPty/corebank/api/internal/store"
+	"github.com/JuanKsPty/corebank/api/internal/transactions"
 )
 
 var (
@@ -32,17 +36,24 @@ var (
 	// for the same reason accounts.ErrNotOwned is at the HTTP layer: a 403
 	// would confirm the id exists.
 	ErrTransactionNotFound = errors.New("bankimport: transaction not found")
+
+	// ErrTargetAccountNotFound means a caller-supplied target account for a
+	// bank-account import does not exist or belongs to someone else — folded
+	// together for the same reason ErrAccountNotFound/ErrAccountNotOwned are.
+	ErrTargetAccountNotFound = errors.New("bankimport: target account not found")
 )
 
 // Service imports bank statement files and serves the accounts and
 // movements they produced.
 type Service struct {
-	db         *store.DB
-	categories *categories.Service
+	db           *store.DB
+	categories   *categories.Service
+	accounts     *accounts.Service
+	transactions *transactions.Service
 }
 
-func NewService(db *store.DB, cats *categories.Service) *Service {
-	return &Service{db: db, categories: cats}
+func NewService(db *store.DB, cats *categories.Service, accts *accounts.Service, tx *transactions.Service) *Service {
+	return &Service{db: db, categories: cats, accounts: accts, transactions: tx}
 }
 
 // ImportResult tallies what one import did.
@@ -52,6 +63,11 @@ type ImportResult struct {
 	TotalRows         int
 	Imported          int
 	SkippedDuplicates int
+	// IsCard is true for a card statement, which stays Postgres-only exactly
+	// as it always has. False means the movements above were posted for
+	// real, to LinkedAccountNumber.
+	IsCard              bool
+	LinkedAccountNumber string
 }
 
 // Import detects a file's format, finds or creates the account it declares,
@@ -60,8 +76,12 @@ type ImportResult struct {
 // The account is never chosen by the caller: AccountHint identifies it from
 // the file itself for all three known formats, which is what lets an upload
 // be "drop the file" rather than "drop the file and then also tell corebank
-// which bank and account it is."
-func (s *Service) Import(ctx context.Context, userID uuid.UUID, filename string, data []byte) (ImportResult, error) {
+// which bank and account it is." targetAccountNumber is a separate, optional
+// choice — which of the customer's own real accounts a bank-account import
+// (never a card) should post to the first time that external account is
+// seen. Empty means auto-open a new one. It is ignored once the external
+// account is already linked, and always ignored for a card.
+func (s *Service) Import(ctx context.Context, userID uuid.UUID, filename string, data []byte, targetAccountNumber string) (ImportResult, error) {
 	parser, err := Detect(filename, data)
 	if err != nil {
 		return ImportResult{}, err
@@ -72,7 +92,7 @@ func (s *Service) Import(ctx context.Context, userID uuid.UUID, filename string,
 		return ImportResult{}, ErrNoAccountHint
 	}
 
-	account, created, err := s.findOrCreateAccount(ctx, userID, hint)
+	account, created, err := s.findOrCreateAccount(ctx, userID, parser, hint, targetAccountNumber)
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -86,10 +106,43 @@ func (s *Service) Import(ctx context.Context, userID uuid.UUID, filename string,
 	if err != nil {
 		return ImportResult{}, err
 	}
+	// Posted in the order they happened, regardless of how the bank listed
+	// them (some exports run newest-first) — otherwise a withdrawal could be
+	// posted before the deposit that covered it and trip the ledger's own
+	// overdraft protection for no reason. Stable, so two rows sharing a
+	// timestamp keep the file's own order, which is what makes their dedup
+	// occurrence index (assigned below, in this same order) reproduce
+	// identically on a re-import of unchanged bytes.
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].OccurredAt.Before(rows[j].OccurredAt) })
 
 	rules, err := s.loadRules(ctx, userID)
 	if err != nil {
 		return ImportResult{}, err
+	}
+
+	// A linked bank account posts every new row for real, through the same
+	// path a customer's own deposit or withdrawal takes — which addresses an
+	// account by number, not by the id this package stores it under.
+	var linkedNumber string
+	if account.LinkedAccountID != nil {
+		linked, err := s.db.Q().AccountByID(ctx, *account.LinkedAccountID)
+		if err != nil {
+			return ImportResult{}, err
+		}
+		linkedNumber = linked.Number
+
+		// Before this external account's first import batch, cover whatever
+		// balance it already held in reality — the statement's own rows
+		// only describe money moving, never the pile it moved on top of.
+		priorBatches, err := s.db.Q().ImportBatchesByAccount(ctx, account.ID)
+		if err != nil {
+			return ImportResult{}, err
+		}
+		if len(priorBatches) == 0 {
+			if err := s.seedOpeningBalance(ctx, userID, linkedNumber, account.ID, rows); err != nil {
+				return ImportResult{}, err
+			}
+		}
 	}
 
 	format := formatName(parser)
@@ -130,7 +183,29 @@ func (s *Service) Import(ctx context.Context, userID uuid.UUID, filename string,
 		}
 		imported++
 
-		if categoryID, ok := matchCategory(row, rules); ok {
+		categoryID, hasCategory := matchCategory(row, rules)
+
+		var txID uuid.UUID
+		if linkedNumber != "" && row.Amount != 0 {
+			txID, err = s.postRow(ctx, userID, linkedNumber, row, key)
+			if err != nil {
+				return ImportResult{}, err
+			}
+			if err := s.db.Q().SetExternalTransactionLink(ctx, id, txID); err != nil {
+				return ImportResult{}, err
+			}
+		}
+
+		switch {
+		case !hasCategory:
+			// Nothing to file it under.
+		case txID != uuid.Nil:
+			// The real transaction is the source of truth for a linked
+			// account, so the category belongs there.
+			if _, err := s.transactions.SetCategory(ctx, userID, txID, &categoryID); err != nil {
+				return ImportResult{}, err
+			}
+		default:
 			if err := s.db.Q().SetExternalTransactionCategory(ctx, id, &categoryID); err != nil {
 				return ImportResult{}, err
 			}
@@ -142,18 +217,92 @@ func (s *Service) Import(ctx context.Context, userID uuid.UUID, filename string,
 	}
 
 	return ImportResult{
-		ImportedAccountID: account.ID,
-		Format:            format,
-		TotalRows:         len(rows),
-		Imported:          imported,
-		SkippedDuplicates: skipped,
+		ImportedAccountID:   account.ID,
+		Format:              format,
+		TotalRows:           len(rows),
+		Imported:            imported,
+		SkippedDuplicates:   skipped,
+		IsCard:              account.LinkedAccountID == nil,
+		LinkedAccountNumber: linkedNumber,
 	}, nil
+}
+
+// postRow posts one new, non-zero movement through the ordinary
+// deposit/withdraw path, the same one a customer's own movement takes — see
+// internal/investments' postCashTransaction for the identical pattern
+// applied to an IBKR cash sync. The dedup key already computed for
+// external_transactions doubles as the idempotency key here, so retrying
+// this call (a crash between posting and SetExternalTransactionLink, say)
+// can never post the same movement twice.
+func (s *Service) postRow(ctx context.Context, userID uuid.UUID, accountNumber string, row ParsedRow, key string) (uuid.UUID, error) {
+	req := transactions.Request{
+		Account:        accountNumber,
+		Description:    row.Description,
+		Origin:         store.OriginBankImport,
+		IdempotencyKey: "bank_import:" + key,
+	}
+
+	var (
+		tx  store.Transaction
+		err error
+	)
+	if row.Amount > 0 {
+		req.Amount = row.Amount
+		tx, err = s.transactions.Deposit(ctx, userID, req)
+	} else {
+		req.Amount = -row.Amount
+		tx, err = s.transactions.Withdraw(ctx, userID, req)
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return tx.ID, nil
+}
+
+// seedOpeningBalance covers a linked account's real-world starting balance
+// before its first import batch, so a statement whose earliest rows are
+// withdrawals — money that was already there before this import, not
+// overdrawn — does not trip the ledger's own overdraft protection.
+//
+// It walks the rows in the order they are about to be posted and finds the
+// lowest point the account's own available balance would reach on top of
+// them; anything below zero is covered by one deposit first. Idempotent on
+// externalAccountID, so retrying an interrupted import never posts it twice.
+func (s *Service) seedOpeningBalance(ctx context.Context, userID uuid.UUID, accountNumber string, externalAccountID uuid.UUID, rows []ParsedRow) error {
+	current, err := s.accounts.Get(ctx, userID, accountNumber)
+	if err != nil {
+		return err
+	}
+
+	running := current.Balance.Available
+	lowest := running
+	for _, row := range rows {
+		running += row.Amount
+		if running < lowest {
+			lowest = running
+		}
+	}
+	if lowest >= 0 {
+		return nil
+	}
+
+	_, err = s.transactions.Deposit(ctx, userID, transactions.Request{
+		Account:        accountNumber,
+		Amount:         -lowest,
+		Description:    "Saldo inicial declarado por el estado de cuenta",
+		Origin:         store.OriginBankImport,
+		IdempotencyKey: "bank_import:opening:" + externalAccountID.String(),
+	})
+	return err
 }
 
 // findOrCreateAccount resolves an account the way SetLink resolves an
 // investment account: by an identity a trusted source (here, the file
-// itself) declares, creating it on first sight.
-func (s *Service) findOrCreateAccount(ctx context.Context, userID uuid.UUID, hint AccountHint) (store.ImportedAccount, bool, error) {
+// itself) declares, creating it on first sight. A card is always Postgres-
+// only, as it always has been; a bank account is now linked to one of the
+// customer's real corebank accounts the first time it is seen, so every
+// later import of the same file is fully automatic.
+func (s *Service) findOrCreateAccount(ctx context.Context, userID uuid.UUID, parser Parser, hint AccountHint, targetAccountNumber string) (store.ImportedAccount, bool, error) {
 	existing, err := s.db.Q().ImportedAccountByHint(ctx, userID, hint.Institution, hint.AccountNumber)
 	if err == nil {
 		return existing, false, nil
@@ -162,18 +311,54 @@ func (s *Service) findOrCreateAccount(ctx context.Context, userID uuid.UUID, hin
 		return store.ImportedAccount{}, false, err
 	}
 
-	created, err := s.db.Q().CreateImportedAccount(ctx, store.ImportedAccount{
+	toCreate := store.ImportedAccount{
 		ID:            uuid.New(),
 		UserID:        userID,
 		Institution:   hint.Institution,
 		AccountNumber: hint.AccountNumber,
 		DisplayName:   hint.DisplayName,
 		Currency:      "USD",
-	})
+	}
+
+	if _, isCard := parser.(bgCardParser); !isCard {
+		linkedID, err := s.linkRealAccount(ctx, userID, hint, targetAccountNumber)
+		if err != nil {
+			return store.ImportedAccount{}, false, err
+		}
+		toCreate.LinkedAccountID = &linkedID
+	}
+
+	created, err := s.db.Q().CreateImportedAccount(ctx, toCreate)
 	if err != nil {
 		return store.ImportedAccount{}, false, err
 	}
 	return created, true, nil
+}
+
+// linkRealAccount resolves or opens the real corebank account a bank-account
+// import (never a card) posts its movements to, the first time that
+// external account is seen. Every later import of the same account reuses
+// external_accounts.linked_account_id instead of calling this again — the
+// "no manual process" property holds for every import after the first.
+func (s *Service) linkRealAccount(ctx context.Context, userID uuid.UUID, hint AccountHint, targetAccountNumber string) (uuid.UUID, error) {
+	if targetAccountNumber != "" {
+		account, err := s.accounts.Resolve(ctx, userID, targetAccountNumber)
+		if err != nil {
+			if errors.Is(err, accounts.ErrNotFound) || errors.Is(err, accounts.ErrNotOwned) {
+				return uuid.Nil, fmt.Errorf("%w: %s", ErrTargetAccountNotFound, targetAccountNumber)
+			}
+			return uuid.Nil, err
+		}
+		return account.ID, nil
+	}
+
+	// Auto-opened the same way "Abrir cuenta" does: checking is the ordinary
+	// day-to-day account a BAC/Banco General movement export describes.
+	opened, err := s.accounts.OpenFor(ctx, userID, ledger.KindChecking, hint.DisplayName)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return opened.ID, nil
 }
 
 // seedDefaultRules translates a Banco General card's own category labels
@@ -227,14 +412,26 @@ type Account struct {
 	DeclaredBalance money.Cents
 }
 
-// Accounts lists a user's imported accounts, each with its declared balance.
+// Accounts lists a user's card accounts, each with its declared balance.
+//
+// A linked bank account is left out on purpose: it already appears as one of
+// the customer's real accounts, with a real balance, so listing it again
+// here — under a declared, unverified figure — would show the same money
+// twice and at odds with itself.
 //
 // One batched balance query for all of them, not one per account — the same
 // shape as accounts.Service.withBalances batching its ledger lookup.
 func (s *Service) Accounts(ctx context.Context, userID uuid.UUID) ([]Account, error) {
-	rows, err := s.db.Q().ImportedAccountsByUser(ctx, userID)
+	all, err := s.db.Q().ImportedAccountsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	rows := make([]store.ImportedAccount, 0, len(all))
+	for _, r := range all {
+		if r.LinkedAccountID == nil {
+			rows = append(rows, r)
+		}
 	}
 	if len(rows) == 0 {
 		return nil, nil

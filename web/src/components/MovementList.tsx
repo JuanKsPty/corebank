@@ -230,6 +230,7 @@ function MonthGroup({
               <span className="mt-0.5 block truncate text-[0.6875rem] text-ink-faint">
                 {movementLabel(movement.kind)}
                 {movement.origin === 'chat' && ' · vía asistente'}
+                {movement.origin === 'bank_import' && ' · importado'}
               </span>
             </TableCell>
 
@@ -302,6 +303,7 @@ function PhoneRow({
           {' · '}
           {counterpartyShort(other)}
           {movement.origin === 'chat' && ' · asistente'}
+          {movement.origin === 'bank_import' && ' · importado'}
         </span>
       </span>
 

@@ -89,8 +89,10 @@ export interface Transaction {
   from_account?: string
   to_account?: string
   description: string
-  /** Whether the customer did this themselves or the assistant did it for them. */
-  origin: 'api' | 'chat'
+  /** Whether the customer did this themselves, the assistant did it for them,
+   * or corebank posted it on its own initiative from an IBKR or bank-import
+   * sync. */
+  origin: 'api' | 'chat' | 'ibkr_sync' | 'bank_import'
   failure_code?: string
   confirmation?: Confirmation
   occurred_at: string
@@ -246,7 +248,9 @@ export interface InvestmentTrade {
 // --- bank import ---------------------------------------------------------------
 
 /**
- * A bank or card account imported from a statement file, not one of corebank's own.
+ * A card account imported from a statement file, not one of corebank's own.
+ * A bank *account* statement is linked to a real corebank account instead —
+ * see `ImportResult` — so it never shows up here.
  *
  * `declared_balance` is a sum of whatever rows happened to be imported, never a
  * figure verified against a live source the way a TigerBeetle account's balance
@@ -289,6 +293,11 @@ export interface ImportResult {
   total_rows: number
   imported: number
   skipped_duplicates: number
+  /** True for a card statement, which stays its own "Tarjetas" entry exactly
+   * as before. False means the movements above posted for real, to the
+   * account named by `linked_account_number`. */
+  is_card: boolean
+  linked_account_number?: string
 }
 
 export interface CategorySpend {
