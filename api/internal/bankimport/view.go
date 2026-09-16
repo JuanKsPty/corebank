@@ -25,31 +25,35 @@ func readAllLimited(r io.Reader, limit int64) ([]byte, error) {
 
 // accountView is an imported account as it appears in a JSON response.
 //
-// No balance field: a declared, unverified figure sits deliberately apart
-// from the TigerBeetle-derived numbers every other account response
-// carries, rather than alongside them in the same shape where it could be
-// mistaken for one.
+// DeclaredBalance is named for what it is, not "balance" bare: a sum over
+// whatever rows happen to be imported, never a figure corebank verified or
+// mixed into a TigerBeetle-derived total anywhere in this codebase. It only
+// exists here because the frontend needs it to show an imported account —
+// a credit card, say — next to a customer's real ones without pretending it
+// is one.
 type accountView struct {
-	ID            string    `json:"id"`
-	Institution   string    `json:"institution"`
-	AccountNumber string    `json:"account_number"`
-	DisplayName   string    `json:"display_name"`
-	Currency      string    `json:"currency"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID              string       `json:"id"`
+	Institution     string       `json:"institution"`
+	AccountNumber   string       `json:"account_number"`
+	DisplayName     string       `json:"display_name"`
+	Currency        string       `json:"currency"`
+	DeclaredBalance money.Amount `json:"declared_balance"`
+	CreatedAt       time.Time    `json:"created_at"`
 }
 
-func newAccountView(a store.ImportedAccount) accountView {
+func newAccountView(a Account) accountView {
 	return accountView{
-		ID:            a.ID.String(),
-		Institution:   a.Institution,
-		AccountNumber: a.AccountNumber,
-		DisplayName:   a.DisplayName,
-		Currency:      a.Currency,
-		CreatedAt:     a.CreatedAt,
+		ID:              a.ID.String(),
+		Institution:     a.Institution,
+		AccountNumber:   a.AccountNumber,
+		DisplayName:     a.DisplayName,
+		Currency:        a.Currency,
+		DeclaredBalance: a.DeclaredBalance.Amount(),
+		CreatedAt:       a.CreatedAt,
 	}
 }
 
-func newAccountViews(list []store.ImportedAccount) []accountView {
+func newAccountViews(list []Account) []accountView {
 	out := make([]accountView, 0, len(list))
 	for _, a := range list {
 		out = append(out, newAccountView(a))
