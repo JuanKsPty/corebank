@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { ChevronRightIcon, PlusIcon } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ChevronRightIcon, CircleAlertIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
-import type { Account, AccountType } from '@/api/types'
+import type { Account, AccountType, ImportResult } from '@/api/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { BalanceComposition, Figure } from '@/components/primitives'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,6 +17,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { accountLabel, accountTypeAside, formatDate } from '@/lib/format'
@@ -23,6 +25,7 @@ import {
   useAccountTotal,
   useExternalAccounts,
   useHoldingsValue,
+  useImportBankStatement,
   useMe,
   useOpenAccount,
 } from '@/lib/queries'
@@ -69,7 +72,10 @@ export function AccountsPage() {
           <p className="type-eyebrow">Cuentas</p>
           <h1 className="type-display mt-1.5 text-[1.75rem]">Tus cuentas</h1>
         </div>
-        <OpenAccountDialog held={accounts.length} />
+        <div className="flex gap-2">
+          <ImportStatementDialog accounts={accounts} />
+          <OpenAccountDialog held={accounts.length} />
+        </div>
       </header>
 
       {me.isLoading ? (
@@ -129,12 +135,15 @@ export function AccountsPage() {
 }
 
 /**
- * Accounts corebank never opened — imported from a statement, a credit card
- * most often. They get the same card, the same grid, the same click-through
- * to a full detail page as a real account: for a customer who runs their
- * spending from a card rather than a checking account, this is not a
- * secondary list. What sets a row apart is the eyebrow and the tone of its
- * balance, not its size or its reach.
+ * Credit cards imported from a statement — corebank never opened these and
+ * never verifies them. A bank *account* statement doesn't appear here: it is
+ * linked to one of the real accounts above instead (see
+ * ImportStatementDialog), so this list is cards only.
+ *
+ * They still get the same card, the same grid, the same click-through to a
+ * full detail page as a real account: for a customer who runs their
+ * spending from a card, this is not a secondary list. What sets a row apart
+ * is the eyebrow and the tone of its balance, not its size or its reach.
  */
 function ExternalAccountsSection() {
   const externalAccounts = useExternalAccounts()
@@ -144,12 +153,12 @@ function ExternalAccountsSection() {
 
   return (
     <div className="space-y-3 border-t border-rule pt-6">
-      <h2 className="type-eyebrow">Cuentas importadas</h2>
+      <h2 className="type-eyebrow">Tarjetas</h2>
       <ul className="grid gap-3 sm:grid-cols-2">
         {accounts.map((account) => (
           <li key={account.id}>
             <Link
-              to={`/importar/${account.id}`}
+              to={`/tarjetas/${account.id}`}
               className="card group flex h-full flex-col p-5 transition-colors hover:border-ink-faint"
             >
               <div className="flex items-start justify-between gap-3">
@@ -247,6 +256,161 @@ function AccountCard({ account }: { account: Account }) {
       </p>
     </Link>
   )
+}
+
+/**
+ * Importing a bank statement, in a dialog next to "Abrir cuenta".
+ *
+ * Which account it belongs to is never chosen by hand for the file itself:
+ * the backend reads the institution and account number straight out of it.
+ * The account picker here is a second, unrelated choice that only matters
+ * for a bank-account statement (never a card, and never a repeat import of
+ * an account already linked): which of the customer's own real accounts to
+ * post it to. Left on "Crear cuenta nueva automáticamente", one opens the
+ * same way "Abrir cuenta" does — so importing stays "drop the file" even the
+ * first time, just with one more thing decided up front instead of never.
+ */
+function ImportStatementDialog({ accounts }: { accounts: Account[] }) {
+  const [open, setOpen] = useState(false)
+  const [targetAccount, setTargetAccount] = useState('')
+  const upload = useImportBankStatement()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const failure = upload.error
+  const message =
+    failure instanceof ApiError
+      ? (failure.fields?.account_number ?? failure.message)
+      : failure
+        ? 'No se pudo importar el archivo. Inténtalo de nuevo.'
+        : null
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) {
+          upload.reset()
+          setTargetAccount('')
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <UploadIcon aria-hidden="true" />
+          Importar estado de cuenta
+        </Button>
+      </DialogTrigger>
+
+      <DialogContent className="sm:max-w-[26rem]">
+        <DialogHeader>
+          <DialogTitle className="type-display text-[1.25rem]">
+            Importar estado de cuenta
+          </DialogTitle>
+          <DialogDescription>
+            Tarjeta o cuenta de Banco General (.txt / .xlsx), o cuenta de BAC (.csv) — tal
+            como lo descargas del banco.
+          </DialogDescription>
+        </DialogHeader>
+
+        {accounts.length > 0 && (
+          <div className="grid gap-1.5" aria-disabled={upload.isPending}>
+            <label
+              htmlFor="import-target-account"
+              className="text-[0.8125rem] font-medium text-ink-soft"
+            >
+              Cuenta a la que pertenece{' '}
+              <span className="font-normal text-ink-faint">(no aplica a una tarjeta)</span>
+            </label>
+            <NativeSelect
+              id="import-target-account"
+              value={targetAccount}
+              disabled={upload.isPending}
+              onChange={(event) => setTargetAccount(event.target.value)}
+            >
+              <NativeSelectOption value="">
+                Crear cuenta nueva automáticamente
+              </NativeSelectOption>
+              {accounts.map((account) => (
+                <NativeSelectOption key={account.id} value={account.account_number}>
+                  {accountLabel(account)} · {account.account_number}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <p className="text-[0.75rem] text-ink-faint">
+              Solo cuenta la primera vez que se importa esa cuenta bancaria; los siguientes
+              archivos de la misma cuenta ya son automáticos.
+            </p>
+          </div>
+        )}
+
+        <label
+          className="mt-2 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[5px] border border-dashed border-rule bg-paper-sunken px-4 py-8 text-center text-[0.875rem] text-ink-soft transition-colors hover:border-ink-faint aria-disabled:pointer-events-none aria-disabled:opacity-60"
+          aria-disabled={upload.isPending}
+        >
+          <UploadIcon className="size-5 text-ink-faint" aria-hidden="true" />
+          {upload.isPending ? 'Procesando…' : 'Elige un archivo o arrástralo aquí'}
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".txt,.csv,.xlsx"
+            className="sr-only"
+            disabled={upload.isPending}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) upload.mutate({ file, accountNumber: targetAccount || undefined })
+              // Cleared so choosing the exact same file twice in a row still fires a
+              // change event the second time.
+              event.target.value = ''
+            }}
+          />
+        </label>
+
+        {upload.isSuccess && upload.data && (
+          <p className="text-[0.8125rem] text-ink-soft">
+            {importSummary(upload.data, accounts)}
+          </p>
+        )}
+
+        {upload.isError && (
+          <Alert variant="destructive">
+            <CircleAlertIcon />
+            <AlertTitle>No se pudo importar el archivo</AlertTitle>
+            <AlertDescription>{message}</AlertDescription>
+          </Alert>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cerrar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const FORMAT_LABEL: Record<string, string> = {
+  bg_card: 'Tarjeta de Banco General',
+  bg_account: 'Cuenta de Banco General',
+  bac_account: 'Cuenta de BAC',
+}
+
+/** Describes what one import did, naming the real account when it posted to one. */
+function importSummary(result: ImportResult, accounts: Account[]): string {
+  const counts = `${result.imported} importado${result.imported === 1 ? '' : 's'}, ${
+    result.skipped_duplicates
+  } ya registrado${result.skipped_duplicates === 1 ? '' : 's'} de ${result.total_rows} fila${
+    result.total_rows === 1 ? '' : 's'
+  }`
+
+  if (result.is_card) {
+    return `${FORMAT_LABEL[result.format] ?? result.format} · ${counts}.`
+  }
+
+  const account = accounts.find((a) => a.account_number === result.linked_account_number)
+  const accountName = account ? accountLabel(account) : result.linked_account_number
+  return `${counts} en tu cuenta ${accountName}.`
 }
 
 /**

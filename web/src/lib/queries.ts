@@ -331,26 +331,36 @@ export function useExternalAccounts() {
 }
 
 /**
- * Uploads a statement file. The account it lands in isn't known until the
- * response comes back, so this invalidates the whole external-accounts list
- * rather than one account's queries — a new account may have just been created.
+ * Uploads a statement file.
+ *
+ * A card statement still lands in its own external account, so this
+ * invalidates the card list and that account's own queries, the same way it
+ * always has. A bank-account statement is different now: its movements
+ * posted for real, so this invalidates everything that displays money —
+ * exactly what a deposit, withdrawal or transfer already does — instead.
  */
 export function useImportBankStatement() {
   const queryClient = useQueryClient()
+  const invalidateMoney = useMoneyInvalidation()
 
   return useMutation({
-    mutationFn: (file: File) => api.importBankStatement(file),
+    mutationFn: ({ file, accountNumber }: { file: File; accountNumber?: string }) =>
+      api.importBankStatement(file, accountNumber),
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: keys.externalAccounts })
-      void queryClient.invalidateQueries({
-        queryKey: keys.externalTransactions(result.external_account_id),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: keys.importHistory(result.external_account_id),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: keys.spendByCategory(result.external_account_id),
-      })
+      if (result.is_card) {
+        void queryClient.invalidateQueries({ queryKey: keys.externalAccounts })
+        void queryClient.invalidateQueries({
+          queryKey: keys.externalTransactions(result.external_account_id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: keys.importHistory(result.external_account_id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: keys.spendByCategory(result.external_account_id),
+        })
+      } else {
+        void invalidateMoney()
+      }
     },
   })
 }

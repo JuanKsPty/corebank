@@ -247,11 +247,12 @@ export function DashboardPage() {
 }
 
 /**
- * Accounts corebank never opened — imported from a statement, a credit card
- * most often — shown with the same card and grid as the real ones just above.
- * For a customer who runs their spending from a card, this list is not an
- * afterthought; only the eyebrow and the balance's tone mark it as declared
- * rather than verified.
+ * Cards corebank never opened — imported from a statement — shown with the
+ * same card and grid as the real accounts just above. A bank *account*
+ * statement doesn't appear here: it is linked to one of those real accounts
+ * instead. For a customer who runs their spending from a card, this list is
+ * not an afterthought; only the eyebrow and the balance's tone mark it as
+ * declared rather than verified.
  */
 function ExternalAccountsSection() {
   const externalAccounts = useExternalAccounts()
@@ -260,13 +261,13 @@ function ExternalAccountsSection() {
   if (accounts.length === 0) return null
 
   return (
-    <section aria-labelledby="cuentas-importadas">
+    <section aria-labelledby="tarjetas">
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 id="cuentas-importadas" className="type-eyebrow">
-          Cuentas importadas
+        <h2 id="tarjetas" className="type-eyebrow">
+          Tarjetas
         </h2>
         <Link
-          to="/importar"
+          to="/cuentas"
           className="text-[0.8125rem] font-medium text-copper hover:underline"
         >
           Ver todas
@@ -277,7 +278,7 @@ function ExternalAccountsSection() {
         {accounts.map((account) => (
           <li key={account.id}>
             <Link
-              to={`/importar/${account.id}`}
+              to={`/tarjetas/${account.id}`}
               className="card group block p-4 transition-colors hover:border-ink-faint"
             >
               <div className="flex items-baseline justify-between gap-2">

@@ -46,7 +46,7 @@ export function ImportedAccountPage() {
         <p className="type-eyebrow">Cuenta no encontrada</p>
         <h1 className="type-display mt-2 text-2xl">Esta cuenta importada no existe</h1>
         <Button asChild variant="outline" className="mt-5">
-          <Link to="/importar">Ir a Importar</Link>
+          <Link to="/cuentas">Ir a Cuentas</Link>
         </Button>
       </div>
     )
@@ -55,8 +55,8 @@ export function ImportedAccountPage() {
   return (
     <div className="space-y-6">
       <nav aria-label="Ruta" className="text-[0.8125rem] text-ink-faint">
-        <Link to="/importar" className="hover:text-ink hover:underline">
-          Importar
+        <Link to="/cuentas" className="hover:text-ink hover:underline">
+          Cuentas
         </Link>
         <span aria-hidden="true" className="px-1.5">
           /

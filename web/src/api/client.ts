@@ -146,12 +146,19 @@ export async function requestFile(
  * multipart boundary once it sees the body is a `FormData`, and overriding it by
  * hand would drop that boundary and break the parse on the server.
  */
-export async function requestUpload<T>(path: string, file: File): Promise<T> {
+export async function requestUpload<T>(
+  path: string,
+  file: File,
+  fields?: Record<string, string>,
+): Promise<T> {
   const upload = async (): Promise<Response> => {
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
     const body = new FormData()
     body.append('file', file)
+    for (const [key, value] of Object.entries(fields ?? {})) {
+      if (value) body.append(key, value)
+    }
     return fetch(path, { method: 'POST', headers, body, credentials: 'same-origin' })
   }
 
