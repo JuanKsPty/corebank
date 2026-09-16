@@ -41,6 +41,13 @@ var (
 	// bank-account import does not exist or belongs to someone else — folded
 	// together for the same reason ErrAccountNotFound/ErrAccountNotOwned are.
 	ErrTargetAccountNotFound = errors.New("bankimport: target account not found")
+
+	// ErrAccountAlreadyLinked means the caller-supplied target account is
+	// already the destination of a different external account. A real
+	// account's own number has nothing to do with the number printed on a
+	// bank statement, so picking the wrong one here would otherwise merge
+	// two unrelated real-world accounts' histories together silently.
+	ErrAccountAlreadyLinked = errors.New("bankimport: account already linked to a different external account")
 )
 
 // Service imports bank statement files and serves the accounts and
@@ -330,6 +337,12 @@ func (s *Service) findOrCreateAccount(ctx context.Context, userID uuid.UUID, par
 
 	created, err := s.db.Q().CreateImportedAccount(ctx, toCreate)
 	if err != nil {
+		// The race-safe fallback for the pre-check linkRealAccount already
+		// did: two requests linking the same account at once can both pass
+		// that check, but only one insert can win the unique index.
+		if store.IsConstraint(err, store.ImportedAccountLinkedConstraint) {
+			return store.ImportedAccount{}, false, fmt.Errorf("%w: %s", ErrAccountAlreadyLinked, targetAccountNumber)
+		}
 		return store.ImportedAccount{}, false, err
 	}
 	return created, true, nil
@@ -349,6 +362,17 @@ func (s *Service) linkRealAccount(ctx context.Context, userID uuid.UUID, hint Ac
 			}
 			return uuid.Nil, err
 		}
+
+		// A friendly pre-check ahead of the unique index that would refuse
+		// this anyway (CreateImportedAccount, below): catching it here
+		// means the caller never has to distinguish "not found" from
+		// "already taken" by parsing a constraint name.
+		if _, err := s.db.Q().ImportedAccountByLinkedAccountID(ctx, account.ID); err == nil {
+			return uuid.Nil, fmt.Errorf("%w: %s", ErrAccountAlreadyLinked, targetAccountNumber)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return uuid.Nil, err
+		}
+
 		return account.ID, nil
 	}
 
