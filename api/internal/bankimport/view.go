@@ -141,6 +141,11 @@ type importResultView struct {
 	TotalRows         int    `json:"total_rows"`
 	Imported          int    `json:"imported"`
 	SkippedDuplicates int    `json:"skipped_duplicates"`
+	// IsCard is true for a card statement, which stays a Postgres-only
+	// import exactly as before. False means the rows above were posted for
+	// real, to LinkedAccountNumber.
+	IsCard              bool    `json:"is_card"`
+	LinkedAccountNumber *string `json:"linked_account_number,omitempty"`
 }
 
 type categorySpendView struct {

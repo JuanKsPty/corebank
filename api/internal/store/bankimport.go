@@ -9,9 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ImportedAccount is a bank account corebank has never verified — see the
-// package doc on why its "balance" is never mixed into a TigerBeetle-derived
-// figure.
+// ImportedAccount is a bank account corebank has never verified on its own
+// — see the package doc for how that changes once LinkedAccountID is set.
 type ImportedAccount struct {
 	ID            uuid.UUID
 	UserID        uuid.UUID
@@ -19,7 +18,12 @@ type ImportedAccount struct {
 	AccountNumber string
 	DisplayName   string
 	Currency      string
-	CreatedAt     time.Time
+	// LinkedAccountID is the real corebank account this external account's
+	// movements are posted to. Set for a bank-account import (checking or
+	// savings), left nil for a card import, which keeps posting nowhere but
+	// external_transactions.
+	LinkedAccountID *uuid.UUID
+	CreatedAt       time.Time
 }
 
 // Constraint names a caller may need to distinguish.
@@ -33,11 +37,11 @@ const (
 // creating a duplicate.
 func (q *Queries) CreateImportedAccount(ctx context.Context, a ImportedAccount) (ImportedAccount, error) {
 	const query = `
-		INSERT INTO external_accounts (id, user_id, institution, account_number, display_name, currency)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO external_accounts (id, user_id, institution, account_number, display_name, currency, linked_account_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING created_at`
 
-	err := q.q.QueryRow(ctx, query, a.ID, a.UserID, a.Institution, a.AccountNumber, a.DisplayName, a.Currency).
+	err := q.q.QueryRow(ctx, query, a.ID, a.UserID, a.Institution, a.AccountNumber, a.DisplayName, a.Currency, a.LinkedAccountID).
 		Scan(&a.CreatedAt)
 	if err != nil {
 		return ImportedAccount{}, wrap("store.CreateImportedAccount", err)
@@ -49,7 +53,7 @@ func (q *Queries) CreateImportedAccount(ctx context.Context, a ImportedAccount) 
 // creation) already registered for this institution and account number.
 func (q *Queries) ImportedAccountByHint(ctx context.Context, userID uuid.UUID, institution, accountNumber string) (ImportedAccount, error) {
 	const query = `
-		SELECT id, user_id, institution, account_number, display_name, currency, created_at
+		SELECT id, user_id, institution, account_number, display_name, currency, linked_account_id, created_at
 		FROM external_accounts WHERE user_id = $1 AND institution = $2 AND account_number = $3`
 
 	a, err := scanImportedAccount(q.q.QueryRow(ctx, query, userID, institution, accountNumber))
@@ -62,7 +66,7 @@ func (q *Queries) ImportedAccountByHint(ctx context.Context, userID uuid.UUID, i
 // ImportedAccountsByUser lists every imported account a user has registered.
 func (q *Queries) ImportedAccountsByUser(ctx context.Context, userID uuid.UUID) ([]ImportedAccount, error) {
 	const query = `
-		SELECT id, user_id, institution, account_number, display_name, currency, created_at
+		SELECT id, user_id, institution, account_number, display_name, currency, linked_account_id, created_at
 		FROM external_accounts WHERE user_id = $1 ORDER BY created_at`
 
 	rows, err := q.q.Query(ctx, query, userID)
@@ -86,7 +90,7 @@ func (q *Queries) ImportedAccountsByUser(ctx context.Context, userID uuid.UUID) 
 // layer checks ownership, the same split accounts.Resolve makes.
 func (q *Queries) ImportedAccountByID(ctx context.Context, id uuid.UUID) (ImportedAccount, error) {
 	const query = `
-		SELECT id, user_id, institution, account_number, display_name, currency, created_at
+		SELECT id, user_id, institution, account_number, display_name, currency, linked_account_id, created_at
 		FROM external_accounts WHERE id = $1`
 
 	a, err := scanImportedAccount(q.q.QueryRow(ctx, query, id))
@@ -98,7 +102,7 @@ func (q *Queries) ImportedAccountByID(ctx context.Context, id uuid.UUID) (Import
 
 func scanImportedAccount(s scanner) (ImportedAccount, error) {
 	var a ImportedAccount
-	if err := s.Scan(&a.ID, &a.UserID, &a.Institution, &a.AccountNumber, &a.DisplayName, &a.Currency, &a.CreatedAt); err != nil {
+	if err := s.Scan(&a.ID, &a.UserID, &a.Institution, &a.AccountNumber, &a.DisplayName, &a.Currency, &a.LinkedAccountID, &a.CreatedAt); err != nil {
 		return ImportedAccount{}, err
 	}
 	return a, nil
@@ -190,7 +194,11 @@ type ExternalTransaction struct {
 	AmountCents       int64
 	Description       string
 	CategoryID        *uuid.UUID
-	Raw               map[string]string
+	// TransactionID is the real movement this row produced, for a row that
+	// belongs to a linked bank account. Nil for a card row, which never
+	// produces one.
+	TransactionID *uuid.UUID
+	Raw           map[string]string
 }
 
 // InsertExternalTransactionIfNew records an imported movement, reporting
@@ -226,7 +234,7 @@ func (q *Queries) InsertExternalTransactionIfNew(ctx context.Context, t External
 func (q *Queries) ExternalTransactionByID(ctx context.Context, id uuid.UUID) (ExternalTransaction, error) {
 	const query = `
 		SELECT id, external_account_id, import_batch_id, dedup_key, external_ref,
-		       occurred_at, amount_cents, description, category_id, raw
+		       occurred_at, amount_cents, description, category_id, transaction_id, raw
 		FROM external_transactions WHERE id = $1`
 
 	t, err := scanExternalTransaction(q.q.QueryRow(ctx, query, id))
@@ -251,13 +259,28 @@ func (q *Queries) SetExternalTransactionCategory(ctx context.Context, id uuid.UU
 	return nil
 }
 
+// SetExternalTransactionLink records the real transaction a row's linked
+// bank account posted it as, once that posting succeeds.
+func (q *Queries) SetExternalTransactionLink(ctx context.Context, id, transactionID uuid.UUID) error {
+	const query = `UPDATE external_transactions SET transaction_id = $2 WHERE id = $1`
+
+	tag, err := q.q.Exec(ctx, query, id, transactionID)
+	if err != nil {
+		return wrap("store.SetExternalTransactionLink", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return wrap("store.SetExternalTransactionLink", pgx.ErrNoRows)
+	}
+	return nil
+}
+
 // ExternalTransactionsByAccount lists an account's imported movements,
 // most recent first, capped at limit — the same "a personal account's
 // history is small enough" call investments.Trades makes.
 func (q *Queries) ExternalTransactionsByAccount(ctx context.Context, accountID uuid.UUID, limit int) ([]ExternalTransaction, error) {
 	const query = `
 		SELECT id, external_account_id, import_batch_id, dedup_key, external_ref,
-		       occurred_at, amount_cents, description, category_id, raw
+		       occurred_at, amount_cents, description, category_id, transaction_id, raw
 		FROM external_transactions
 		WHERE external_account_id = $1
 		ORDER BY occurred_at DESC
@@ -282,17 +305,19 @@ func (q *Queries) ExternalTransactionsByAccount(ctx context.Context, accountID u
 
 func scanExternalTransaction(s scanner) (ExternalTransaction, error) {
 	var (
-		t           ExternalTransaction
-		importBatch *uuid.UUID
-		categoryID  *uuid.UUID
-		raw         []byte
+		t             ExternalTransaction
+		importBatch   *uuid.UUID
+		categoryID    *uuid.UUID
+		transactionID *uuid.UUID
+		raw           []byte
 	)
 	if err := s.Scan(&t.ID, &t.ImportedAccountID, &importBatch, &t.DedupKey, &t.ExternalRef,
-		&t.OccurredAt, &t.AmountCents, &t.Description, &categoryID, &raw); err != nil {
+		&t.OccurredAt, &t.AmountCents, &t.Description, &categoryID, &transactionID, &raw); err != nil {
 		return ExternalTransaction{}, err
 	}
 	t.ImportBatchID = importBatch
 	t.CategoryID = categoryID
+	t.TransactionID = transactionID
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &t.Raw)
 	}

@@ -48,6 +48,9 @@ const (
 	// initiative because an IBKR sync reported it, not because the customer
 	// asked for it in the moment.
 	OriginIBKRSync = "ibkr_sync"
+	// OriginBankImport marks a movement a bank-account statement import
+	// posted, the same way OriginIBKRSync marks one an IBKR sync posted.
+	OriginBankImport = "bank_import"
 )
 
 // ExternalAccount is the counterparty for money entering or leaving the bank.

@@ -1,10 +1,11 @@
--- Bank statement import: a bank account corebank has never verified, kept
--- explicitly separate from the accounts the ledger is authoritative for.
---
--- An external account's "balance" is only ever a sum over
+-- Bank statement import: a bank account corebank has never verified on its
+-- own. A card statement stays exactly that — external_accounts.
+-- linked_account_id (added by 00008_bank_import_linked_accounts.sql) is
+-- null for it, and its "balance" is only ever a sum over
 -- external_transactions.amount_cents, shown labelled as declared by the
--- import, not verified by corebank — never blended into a TigerBeetle-
--- derived total. See internal/bankimport's package doc.
+-- import, never blended into a TigerBeetle-derived total. A bank *account*
+-- statement (checking/savings) is different: it gets linked_account_id set
+-- and its rows are posted for real — see internal/bankimport's package doc.
 
 -- +goose Up
 

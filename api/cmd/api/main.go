@@ -110,7 +110,7 @@ func run() error {
 
 	txSvc := transactions.NewService(db, book, accountsSvc, categoriesSvc, cfg.AI.HoldTTL)
 	investmentsSvc := investments.NewService(db, accountsSvc, txSvc, cfg.IBKR.TokenEncryptionKey)
-	bankImportSvc := bankimport.NewService(db, categoriesSvc)
+	bankImportSvc := bankimport.NewService(db, categoriesSvc, accountsSvc, txSvc)
 
 	// The assistant is built from whichever engine is available, and which one it
 	// is stays visible: without an API key the rule-based fallback drives the same
