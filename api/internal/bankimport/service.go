@@ -56,6 +56,12 @@ var (
 	// someone else's file", this one catches "this file is already a
 	// different account's".
 	ErrStatementBelongsToAnotherAccount = errors.New("bankimport: statement already belongs to a different account")
+
+	// ErrCardLinked means the id requested for deletion is a linked bank
+	// account's identity, not a card. Deleting it here would sever the link
+	// without touching the real account it belongs to; there is no path
+	// through this package for that, only through accounts.Service.Delete.
+	ErrCardLinked = errors.New("bankimport: not a card")
 )
 
 // Service imports bank statement files and serves the accounts and
@@ -578,6 +584,25 @@ func (s *Service) SetTransactionCategory(ctx context.Context, userID uuid.UUID, 
 		}
 	}
 	return s.db.Q().SetExternalTransactionCategory(ctx, transactionID, categoryID)
+}
+
+// DeleteAccount removes a card, and everything imported under it.
+//
+// Nothing here touches TigerBeetle — a card never has, that is the whole
+// point of the split this package's doc describes — so unlike deleting a
+// real account, there is no balance to check and no "only account" to
+// protect. Refused only for an id that turns out to be a linked bank
+// account's identity rather than a card: that one belongs to
+// accounts.Service.Delete instead.
+func (s *Service) DeleteAccount(ctx context.Context, userID uuid.UUID, accountID uuid.UUID) error {
+	account, err := s.resolve(ctx, userID, accountID)
+	if err != nil {
+		return err
+	}
+	if account.LinkedAccountID != nil {
+		return fmt.Errorf("%w: %s", ErrCardLinked, accountID)
+	}
+	return s.db.Q().DeleteImportedAccount(ctx, accountID)
 }
 
 // resolve finds an external account by id and checks that userID owns it.
