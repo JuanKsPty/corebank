@@ -1,4 +1,4 @@
-import { ChevronLeftIcon, LogOutIcon, ShieldIcon } from 'lucide-react'
+import { ChevronLeftIcon, LogOutIcon, SettingsIcon, ShieldIcon } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { Wordmark } from '@/components/Wordmark'
@@ -34,7 +34,7 @@ export function MobileAppBar() {
   const firstName = user?.full_name.split(' ')[0] ?? ''
 
   return (
-    <header className={cn('sticky top-0 z-30 bg-ink text-paper md:hidden')}>
+    <header className={cn('sticky top-0 z-30 bg-chrome text-chrome-foreground md:hidden')}>
       {detail ? (
         <div
           className={cn('grid grid-cols-[2.5rem_1fr_2.5rem] items-center py-2.5', gutter)}
@@ -43,7 +43,7 @@ export function MobileAppBar() {
             type="button"
             onClick={() => void navigate(-1)}
             aria-label="Volver"
-            className="-ml-2 flex size-10 items-center justify-center rounded-full text-paper/80 active:bg-paper/10"
+            className="-ml-2 flex size-10 items-center justify-center rounded-full text-chrome-foreground/80 active:bg-chrome-foreground/10"
           >
             <ChevronLeftIcon className="size-6" aria-hidden="true" />
           </button>
@@ -53,7 +53,7 @@ export function MobileAppBar() {
       ) : (
         <div className={cn('flex items-center justify-between py-3', gutter)}>
           <Link to="/panel" aria-label="corebank, ir al resumen">
-            <Wordmark className="h-[18px] text-paper" />
+            <Wordmark className="h-[18px] text-chrome-foreground" />
           </Link>
 
           <DropdownMenu>
@@ -61,7 +61,7 @@ export function MobileAppBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-9 rounded-full bg-paper/10 text-paper hover:bg-paper/20 hover:text-paper"
+                className="size-9 rounded-full bg-chrome-foreground/10 text-chrome-foreground hover:bg-chrome-foreground/20 hover:text-chrome-foreground"
                 aria-label="Tu cuenta"
               >
                 <span className="type-figure text-[0.8125rem]">
@@ -74,6 +74,12 @@ export function MobileAppBar() {
                 {user?.full_name}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link to="/ajustes">
+                  <SettingsIcon aria-hidden="true" />
+                  Ajustes
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/seguridad">
                   <ShieldIcon aria-hidden="true" />
@@ -91,7 +97,7 @@ export function MobileAppBar() {
       )}
 
       {!detail && (
-        <p className={cn('pb-4 text-[1.375rem] text-paper', gutter)}>
+        <p className={cn('pb-4 text-[1.375rem] text-chrome-foreground', gutter)}>
           <span className="type-display">{greeting()}</span>
           {firstName && <span className="type-display font-bold">, {firstName}</span>}
         </p>
@@ -114,6 +120,7 @@ function detailTitle(pathname: string): string | null {
   if (pathname.startsWith('/cuentas/')) return 'Detalle de cuenta'
   if (pathname === '/cuentas') return 'Tus cuentas'
   if (pathname === '/seguridad') return 'Seguridad'
+  if (pathname === '/ajustes') return 'Ajustes'
   if (pathname.startsWith('/tarjetas/')) return 'Tarjeta'
   return null
 }

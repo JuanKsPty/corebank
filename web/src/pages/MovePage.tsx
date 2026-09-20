@@ -499,7 +499,7 @@ function MovementForm({
         <Button
           type="submit"
           disabled={movement.isPending}
-          className="bg-copper text-white hover:bg-copper/90"
+          className="bg-copper text-primary-foreground hover:bg-copper/90"
         >
           {movement.isPending && <Spinner />}
           {movement.isPending

@@ -212,7 +212,7 @@ export function SignInPage() {
           <Button
             type="submit"
             disabled={submitting}
-            className="w-full bg-copper text-white hover:bg-copper/90"
+            className="w-full bg-copper text-primary-foreground hover:bg-copper/90"
           >
             {submitting && <Spinner />}
             {submitting ? 'Entrando' : 'Entrar'}
@@ -309,7 +309,7 @@ export function SignInPage() {
         <Button
           type="submit"
           disabled={submitting}
-          className="w-full bg-copper text-white hover:bg-copper/90"
+          className="w-full bg-copper text-primary-foreground hover:bg-copper/90"
         >
           {submitting && <Spinner />}
           {submitting ? 'Entrando' : 'Entrar'}
