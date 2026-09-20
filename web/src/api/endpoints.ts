@@ -156,6 +156,20 @@ export function renameAccount(accountNumber: string, alias: string) {
 }
 
 /**
+ * Deletes one of the signed-in customer's accounts.
+ *
+ * The server refuses unless the account is empty, is not the customer's only
+ * one, and (for an investment account) has no IBKR link — see
+ * accounts.Service.Delete. This never removes any ledger money; it removes
+ * the row that lets the app find the account at all.
+ */
+export function deleteAccount(accountNumber: string) {
+  return request<void>(`/api/accounts/${encodeURIComponent(accountNumber)}`, {
+    method: 'DELETE',
+  })
+}
+
+/**
  * The filters, as the API takes them.
  *
  * Shared by the paginated view and the CSV export so the file can only ever describe

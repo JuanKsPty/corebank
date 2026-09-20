@@ -33,6 +33,23 @@ var (
 	// does this one; without it a single session could open accounts until the number
 	// space ran short, and every one of them would be a row the statement has to scan.
 	ErrTooManyAccounts = errors.New("accounts: the customer already holds the maximum number of accounts")
+
+	// ErrAccountNotEmpty means the account still holds funds. TigerBeetle has
+	// no delete operation at all — this is the closest thing corebank has to
+	// closing an account, and it never closes one that still holds money.
+	ErrAccountNotEmpty = errors.New("accounts: account still holds funds")
+
+	// ErrLastAccount means this is the only account the customer has left.
+	// Deleting it would leave "the customer's only account" — the shorthand
+	// a deposit or a chat request without a named account resolves to —
+	// with nothing to resolve to.
+	ErrLastAccount = errors.New("accounts: cannot delete a customer's only account")
+
+	// ErrAccountLinked means an investment account still has an IBKR link.
+	// Deleting it would cascade away the link, its positions and its trades
+	// with no confirmation that was the point — unlinking is its own,
+	// deliberate step.
+	ErrAccountLinked = errors.New("accounts: account still has an external link")
 )
 
 // Account is an account with the balance the ledger reports for it.
@@ -220,6 +237,49 @@ func (s *Service) Rename(ctx context.Context, userID uuid.UUID, number, rawAlias
 		return Account{}, err
 	}
 	return withBalance[0], nil
+}
+
+// Delete removes an account the customer no longer wants.
+//
+// "Delete" is the word the interface uses; what actually happens is narrower.
+// TigerBeetle has no operation that deletes an account, so the ledger account
+// this pointed to persists forever, holding whatever balance it already had —
+// which is why this refuses unless that balance is zero. Below that, deleting
+// is just removing the PostgreSQL row: the app stops showing the account, and
+// nothing about real transaction history changes, because transactions are
+// never linked to an account by id, only by the number that keeps existing
+// wherever it was already recorded.
+func (s *Service) Delete(ctx context.Context, userID uuid.UUID, number string) error {
+	account, err := s.Resolve(ctx, userID, number)
+	if err != nil {
+		return err
+	}
+
+	balances, err := s.book.Balances(ctx, []ledger.AccountID{account.LedgerID})
+	if err != nil {
+		return fmt.Errorf("accounts: reading balance: %w", err)
+	}
+	if balance := balances[account.LedgerID]; balance.Posted != 0 || balance.Held != 0 {
+		return fmt.Errorf("%w: %s", ErrAccountNotEmpty, number)
+	}
+
+	held, err := s.db.Q().AccountsByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if len(held) <= 1 {
+		return fmt.Errorf("%w: %s", ErrLastAccount, number)
+	}
+
+	if account.Kind == ledger.KindInvestment {
+		if _, err := s.db.Q().IBKRLinkByAccountID(ctx, account.ID); err == nil {
+			return fmt.Errorf("%w: %s", ErrAccountLinked, number)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
+
+	return s.db.Q().DeleteAccount(ctx, account.ID)
 }
 
 // Lookup finds any account by number without an ownership check, for validating

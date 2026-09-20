@@ -41,6 +41,7 @@ func (h *Handler) Routes(history http.HandlerFunc) http.Handler {
 	// the body is the whole account, which it never is — nobody may replace a
 	// balance or a number.
 	r.Patch("/{number}", h.rename)
+	r.Delete("/{number}", h.delete)
 	r.Get("/{number}/balance", h.balance)
 	r.Get("/{number}/transactions", history)
 	return r
@@ -129,6 +130,21 @@ func TranslateError(err error) error {
 			"too_many_accounts",
 			"Ya tienes el máximo de cuentas que puedes abrir.",
 		).WithCause(err)
+	case errors.Is(err, ErrAccountNotEmpty):
+		return httpx.Conflict(
+			"account_not_empty",
+			"Esta cuenta todavía tiene saldo. Muévelo antes de eliminarla.",
+		).WithCause(err)
+	case errors.Is(err, ErrLastAccount):
+		return httpx.Conflict(
+			"last_account",
+			"No puedes eliminar tu única cuenta.",
+		).WithCause(err)
+	case errors.Is(err, ErrAccountLinked):
+		return httpx.Conflict(
+			"account_linked",
+			"Esta cuenta todavía está vinculada a IBKR. Desvincúlala antes de eliminarla.",
+		).WithCause(err)
 	case errors.Is(err, ErrAliasTooLong):
 		return httpx.Invalid(map[string]string{
 			"alias": fmt.Sprintf("El alias admite como máximo %d caracteres.", maxAliasRunes),
@@ -180,6 +196,19 @@ func (h *Handler) rename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.JSON(w, r, http.StatusOK, NewView(account))
+}
+
+// delete closes an account of the authenticated customer's own — only one
+// with nothing left in it, which TranslateError is what turns into the
+// specific, actionable messages a customer sees for why not.
+func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
+	err := h.svc.Delete(r.Context(),
+		identity.MustFromContext(r.Context()), chi.URLParam(r, "number"))
+	if err != nil {
+		httpx.Fail(w, r, TranslateError(err))
+		return
+	}
+	httpx.NoContent(w)
 }
 
 type accountListResponse struct {

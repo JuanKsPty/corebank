@@ -108,6 +108,27 @@ func (q *Queries) AccountByID(ctx context.Context, id uuid.UUID) (Account, error
 	return a, nil
 }
 
+// DeleteAccount removes an account's row. It never touches the ledger — there
+// is no such operation in TigerBeetle's API, so the account it pointed to
+// persists there regardless, holding whatever balance the caller already
+// verified was zero. Every reference the schema keeps to this id either
+// cascades (ibkr_links, investment_positions, investment_trades) or is set to
+// null (external_accounts.linked_account_id); nothing else references
+// accounts.id at all — transactions is keyed by account *number*, not id, so
+// this never touches a row of real or imported history.
+func (q *Queries) DeleteAccount(ctx context.Context, id uuid.UUID) error {
+	const query = `DELETE FROM accounts WHERE id = $1`
+
+	tag, err := q.q.Exec(ctx, query, id)
+	if err != nil {
+		return wrap("store.DeleteAccount", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return wrap("store.DeleteAccount", pgx.ErrNoRows)
+	}
+	return nil
+}
+
 // UpdateAccountAlias sets what the customer calls an account.
 //
 // Keyed by account number and not by owner: authorisation happens at the service

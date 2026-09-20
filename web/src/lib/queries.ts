@@ -152,6 +152,22 @@ export function useRenameAccount() {
   })
 }
 
+/**
+ * Deletes one of the customer's accounts. Same invalidation as opening or
+ * renaming one — every list that shows accounts is now missing one.
+ */
+export function useDeleteAccount() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (number: string) => api.deleteAccount(number),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.me })
+      void queryClient.invalidateQueries({ queryKey: keys.dashboard })
+    },
+  })
+}
+
 // --- investments --------------------------------------------------------------
 
 /**
