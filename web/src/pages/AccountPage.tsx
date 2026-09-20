@@ -1,6 +1,6 @@
-import { CircleAlertIcon, PencilIcon, UploadIcon } from 'lucide-react'
+import { CircleAlertIcon, PencilIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
 import type { Account, InvestmentLinkStatus } from '@/api/types'
@@ -33,6 +33,7 @@ import {
 import { accountLabel, accountTypeAside, accountTypeLabel, formatDate } from '@/lib/format'
 import {
   useAccountTotal,
+  useDeleteAccount,
   useHistory,
   useInvestmentLink,
   useInvestmentTrades,
@@ -125,6 +126,7 @@ export function AccountPage() {
             {account.account_type !== 'investment' && (
               <ImportStatementAction account={account} />
             )}
+            <DeleteAccountAction account={account} />
 
             <div className="mt-5 max-w-xl">
               <BalanceComposition
@@ -329,6 +331,103 @@ function ImportStatementAction({ account }: { account: Account }) {
           </Button>
         }
       />
+    </div>
+  )
+}
+
+/**
+ * Deleting an account, from the account it belongs to.
+ *
+ * Disabled rather than hidden while the account still holds anything, so the
+ * reason is visible instead of the option just being missing. "Delete" is
+ * the word used here; what it actually does is narrower — see
+ * accounts.Service.Delete — because TigerBeetle has no operation that
+ * deletes a ledger account at all. Below zero balance there is nothing left
+ * to lose access to, so removing the row that lets the app find it is the
+ * closest thing to closing it that exists.
+ */
+function DeleteAccountAction({ account }: { account: Account }) {
+  const [open, setOpen] = useState(false)
+  const deleteAccount = useDeleteAccount()
+  const navigate = useNavigate()
+
+  const canDelete = account.posted.cents === 0 && account.held.cents === 0
+
+  const failure = deleteAccount.error
+  const message =
+    failure instanceof ApiError
+      ? failure.message
+      : failure
+        ? 'No se pudo eliminar la cuenta. Inténtalo de nuevo.'
+        : null
+
+  return (
+    <div className="mt-3">
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) deleteAccount.reset()
+        }}
+      >
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canDelete}
+            className="text-danger-text hover:border-danger/40 hover:bg-danger/5 hover:text-danger-text"
+          >
+            <Trash2Icon aria-hidden="true" />
+            Eliminar cuenta
+          </Button>
+        </DialogTrigger>
+
+        <DialogContent className="sm:max-w-[26rem]">
+          <DialogHeader>
+            <DialogTitle className="type-display text-[1.25rem]">
+              ¿Eliminar esta cuenta?
+            </DialogTitle>
+            <DialogDescription>
+              {accountLabel(account)} ({account.account_number}) deja de aparecer en
+              corebank. No se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+
+          {message && (
+            <p role="alert" className="text-[0.8125rem] text-danger-text">
+              {message}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={deleteAccount.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteAccount.isPending}
+              onClick={() =>
+                deleteAccount.mutate(account.account_number, {
+                  onSuccess: () => navigate('/cuentas'),
+                })
+              }
+            >
+              {deleteAccount.isPending && <Spinner />}
+              Eliminar cuenta
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {!canDelete && (
+        <p className="mt-1.5 text-[0.75rem] text-ink-faint">
+          Mueve el saldo a otra cuenta antes de eliminarla.
+        </p>
+      )}
     </div>
   )
 }

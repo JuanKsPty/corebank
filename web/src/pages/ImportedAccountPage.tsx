@@ -1,6 +1,8 @@
+import { UploadIcon } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { Figure } from '@/components/primitives'
+import { ImportStatementDialog } from '@/components/ImportStatementDialog'
 import { Button } from '@/components/ui/button'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -84,6 +86,21 @@ export function ImportedAccountPage() {
               Declarado a partir de lo importado — no verificado por corebank, y no forma
               parte de tu disponible ni de tu patrimonio total.
             </p>
+
+            {/* No account to target here — a card's identity comes entirely from the
+                file itself, the same as the first time this one was imported, so this
+                is the same trigger the accounts list uses rather than the one that
+                targets a specific real account. */}
+            <div className="mt-3">
+              <ImportStatementDialog
+                trigger={
+                  <Button variant="outline" size="sm">
+                    <UploadIcon aria-hidden="true" />
+                    Importar otro estado de cuenta
+                  </Button>
+                }
+              />
+            </div>
           </>
         ) : (
           <div className="space-y-3">
