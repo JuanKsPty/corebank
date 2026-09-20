@@ -278,6 +278,16 @@ export const importBankStatement = (file: File, accountNumber?: string) =>
     accountNumber ? { account_number: accountNumber } : undefined,
   )
 
+/**
+ * Deletes a card and everything imported under it. Refused by the server if
+ * the id turns out to be a linked bank account's identity rather than a
+ * card — that one is deleted through deleteAccount instead.
+ */
+export const deleteExternalAccount = (externalAccountId: string) =>
+  request<void>(`/api/external-accounts/${encodeURIComponent(externalAccountId)}`, {
+    method: 'DELETE',
+  })
+
 export function fetchExternalTransactions(externalAccountId: string, limit?: number) {
   const qs = limit ? `?limit=${limit}` : ''
   return request<{ transactions: ExternalTransaction[] }>(

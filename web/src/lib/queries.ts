@@ -346,6 +346,20 @@ export function useExternalAccounts() {
   return useQuery({ queryKey: keys.externalAccounts, queryFn: api.fetchExternalAccounts })
 }
 
+/** Deletes a card. Invalidates the same lists opening or renaming a real
+ * account does — every screen that lists cards is now missing one. */
+export function useDeleteExternalAccount() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (externalAccountId: string) => api.deleteExternalAccount(externalAccountId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.externalAccounts })
+      void queryClient.invalidateQueries({ queryKey: keys.dashboard })
+    },
+  })
+}
+
 /**
  * Uploads a statement file.
  *

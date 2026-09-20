@@ -1,19 +1,21 @@
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from 'lucide-react'
 
+import { useTheme } from '@/lib/theme'
+
 /**
- * Toaster, with shadcn's `next-themes` dependency removed.
- *
- * The generated wrapper reads the active theme from `next-themes` so a toast can
- * follow a dark palette. There is no dark palette here — the interface is paper and
- * ink — so the theme is pinned and the dependency dropped rather than carried for a
- * value that would never change. The surface colours come from the token bridge, so
- * a toast is drawn on the same raised paper as a card.
+ * Toaster, reading the resolved theme from corebank's own provider rather than
+ * `next-themes` — dropped when this was generated, when there was no dark
+ * palette to follow; see `src/lib/theme.tsx` for why it's back. The surface
+ * colours come from the token bridge either way, so a toast is drawn on the
+ * same raised paper as a card, in whichever edition is active.
  */
 const Toaster = ({ ...props }: ToasterProps) => {
+  const { resolvedTheme } = useTheme()
+
   return (
     <Sonner
-      theme="light"
+      theme={resolvedTheme}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

@@ -104,6 +104,24 @@ func (q *Queries) ImportedAccountByID(ctx context.Context, id uuid.UUID) (Import
 	return a, nil
 }
 
+// DeleteImportedAccount removes an external account's row. Its
+// external_transactions and import_batches cascade away with it (ON DELETE
+// CASCADE, see 00006_bank_import.sql) — there is nothing else to clean up
+// separately, unlike deleting a real account, which never touches this
+// table at all.
+func (q *Queries) DeleteImportedAccount(ctx context.Context, id uuid.UUID) error {
+	const query = `DELETE FROM external_accounts WHERE id = $1`
+
+	tag, err := q.q.Exec(ctx, query, id)
+	if err != nil {
+		return wrap("store.DeleteImportedAccount", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return wrap("store.DeleteImportedAccount", pgx.ErrNoRows)
+	}
+	return nil
+}
+
 // ImportedAccountByLinkedAccountID finds the external account already
 // linked to a real one, if any — a friendly pre-check before attempting a
 // link that the unique index would refuse anyway, so the caller can say

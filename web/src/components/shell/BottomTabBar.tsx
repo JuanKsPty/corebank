@@ -46,7 +46,9 @@ export function BottomTabBar() {
                 aria-label="Abrir el asistente"
                 className={cn(
                   'absolute -top-5 flex size-14 flex-col items-center justify-center rounded-full',
-                  'bg-copper text-white shadow-[0_2px_10px_rgba(14,42,38,0.22)]',
+                  // A plain black shadow rather than a tinted one: elevation reads
+                  // the same regardless of which edition of the palette is active.
+                  'bg-copper text-primary-foreground shadow-[0_2px_10px_rgba(0,0,0,0.22)]',
                   // A ring in the page colour, so the button reads as sitting above
                   // the bar rather than punched through it.
                   'ring-4 ring-paper',

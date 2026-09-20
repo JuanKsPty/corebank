@@ -1,11 +1,24 @@
-import { UploadIcon } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Trash2Icon, UploadIcon } from 'lucide-react'
+import { useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
+import { ApiError } from '@/api/client'
+import type { ExternalAccount } from '@/api/types'
 import { Figure } from '@/components/primitives'
 import { ImportStatementDialog } from '@/components/ImportStatementDialog'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
   TableBody,
@@ -17,6 +30,7 @@ import {
 import { formatDate } from '@/lib/format'
 import {
   useCategories,
+  useDeleteExternalAccount,
   useExternalAccounts,
   useExternalTransactions,
   useImportHistory,
@@ -91,7 +105,7 @@ export function ImportedAccountPage() {
                 file itself, the same as the first time this one was imported, so this
                 is the same trigger the accounts list uses rather than the one that
                 targets a specific real account. */}
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap gap-2">
               <ImportStatementDialog
                 trigger={
                   <Button variant="outline" size="sm">
@@ -100,6 +114,7 @@ export function ImportedAccountPage() {
                   </Button>
                 }
               />
+              <DeleteCardAction account={account} />
             </div>
           </>
         ) : (
@@ -118,6 +133,90 @@ export function ImportedAccountPage() {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Deleting a card, from the card's own page.
+ *
+ * Unlike a real account, nothing here checks a balance or protects a "last
+ * account" — a card never touches TigerBeetle in the first place, so there
+ * is no ledger money to lose access to, and corebank works fine with none
+ * imported at all. Deleting it removes its whole imported history
+ * (external_transactions, import history) along with it, in one step.
+ */
+function DeleteCardAction({ account }: { account: ExternalAccount }) {
+  const [open, setOpen] = useState(false)
+  const deleteAccount = useDeleteExternalAccount()
+  const navigate = useNavigate()
+
+  const failure = deleteAccount.error
+  const message =
+    failure instanceof ApiError
+      ? failure.message
+      : failure
+        ? 'No se pudo eliminar la tarjeta. Inténtalo de nuevo.'
+        : null
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) deleteAccount.reset()
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-danger-text hover:border-danger/40 hover:bg-danger/5 hover:text-danger-text"
+        >
+          <Trash2Icon aria-hidden="true" />
+          Eliminar tarjeta
+        </Button>
+      </DialogTrigger>
+
+      <DialogContent className="sm:max-w-[26rem]">
+        <DialogHeader>
+          <DialogTitle className="type-display text-[1.25rem]">
+            ¿Eliminar esta tarjeta?
+          </DialogTitle>
+          <DialogDescription>
+            {account.display_name} y todo lo importado bajo ella — sus movimientos y su
+            historial de importaciones — desaparecen de corebank. No se puede deshacer.
+          </DialogDescription>
+        </DialogHeader>
+
+        {message && (
+          <p role="alert" className="text-[0.8125rem] text-danger-text">
+            {message}
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={deleteAccount.isPending}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={deleteAccount.isPending}
+            onClick={() =>
+              deleteAccount.mutate(account.id, {
+                onSuccess: () => navigate('/cuentas'),
+              })
+            }
+          >
+            {deleteAccount.isPending && <Spinner />}
+            Eliminar tarjeta
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

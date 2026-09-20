@@ -611,7 +611,7 @@ function LinkAccountForm({ account }: { account: Account }) {
               <Button
                 type="submit"
                 disabled={link.isPending || !ibkrAccountId || !flexQueryId || !flexToken}
-                className="bg-copper text-white hover:bg-copper/90"
+                className="bg-copper text-primary-foreground hover:bg-copper/90"
               >
                 {link.isPending && <Spinner />}
                 Vincular

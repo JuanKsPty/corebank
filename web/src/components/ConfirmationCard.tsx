@@ -82,12 +82,12 @@ export function ConfirmationCard({
     >
       <div className="flex items-center justify-between gap-3 border-b border-rule bg-hold/8 px-4 py-2">
         <p
-          className="type-eyebrow whitespace-nowrap text-[#8a6516]"
+          className="type-eyebrow whitespace-nowrap text-hold-text"
           style={{ letterSpacing: '0.08em' }}
         >
           {movementLabel(card.kind)} pendiente
         </p>
-        <span className="flex items-center gap-1.5 text-[#8a6516]">
+        <span className="flex items-center gap-1.5 text-hold-text">
           <span
             aria-hidden="true"
             className="size-1.5 animate-pulse rounded-full bg-hold"
@@ -131,13 +131,13 @@ export function ConfirmationCard({
         </dl>
 
         {/* The sentence that matters most on the card. */}
-        <p className="mt-3 text-[0.8125rem] leading-snug text-[#8a6516]">
+        <p className="mt-3 text-[0.8125rem] leading-snug text-hold-text">
           Los fondos están reservados y tu saldo disponible ya lo refleja, pero el dinero{' '}
           <strong className="font-semibold">no se ha movido</strong>.
         </p>
 
         {failure && (
-          <p className="mt-3 text-[0.8125rem] text-[#8f2d24]" role="alert">
+          <p className="mt-3 text-[0.8125rem] text-danger-text" role="alert">
             {failure}
           </p>
         )}
@@ -152,7 +152,7 @@ export function ConfirmationCard({
             <Button
               onClick={() => void act('confirm')}
               disabled={working}
-              className="flex-1 bg-copper text-white hover:bg-copper/90"
+              className="flex-1 bg-copper text-primary-foreground hover:bg-copper/90"
             >
               {working && resolve.variables?.action === 'confirm' && <Spinner />}
               Confirmar

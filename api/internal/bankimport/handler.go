@@ -38,6 +38,7 @@ func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", h.list)
 	r.Post("/import", h.importFile)
+	r.Delete("/{id}", h.delete)
 	r.Get("/{id}/transactions", h.transactions)
 	r.Get("/{id}/imports", h.imports)
 	r.Get("/{id}/spend-by-category", h.spendByCategory)
@@ -87,6 +88,21 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, r, http.StatusOK, accountsResponse{Accounts: newAccountViews(accounts)})
+}
+
+// delete removes a card and everything imported under it.
+func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Fail(w, r, httpx.NotFound("account_not_found", "La cuenta importada no existe."))
+		return
+	}
+
+	if err := h.svc.DeleteAccount(r.Context(), identity.MustFromContext(r.Context()), id); err != nil {
+		httpx.Fail(w, r, translate(err))
+		return
+	}
+	httpx.NoContent(w)
 }
 
 func (h *Handler) importFile(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +243,9 @@ func translate(err error) error {
 		return httpx.Invalid(map[string]string{
 			"account_number": "Este estado de cuenta ya pertenece a otra de tus cuentas.",
 		}).WithCause(err)
+	case errors.Is(err, ErrCardLinked):
+		return httpx.Conflict("card_linked",
+			"Esto no es una tarjeta — está vinculado a una de tus cuentas reales.").WithCause(err)
 	case errors.Is(err, categories.ErrNotFound), errors.Is(err, categories.ErrNotOwned):
 		return httpx.Invalid(map[string]string{"category_id": "La categoría no existe."}).WithCause(err)
 	default:

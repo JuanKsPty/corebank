@@ -3,11 +3,9 @@
 @import 'shadcn/tailwind.css';
 
 /* The `dark` variant is bound to a `.dark` ancestor rather than left on Tailwind's
-   default of `prefers-color-scheme`. There is no dark theme here — the palette is
-   paper and ink — and no element ever carries `.dark`, so this deliberately
-   neutralises every `dark:` utility that ships inside a shadcn component. Removing
-   this line would let those utilities fire for anyone whose OS is in dark mode and
-   repaint them against a light palette. */
+   default of `prefers-color-scheme`, because the choice is the customer's — set
+   from /ajustes, or "Sistema" tracking their OS — not the browser's alone. See
+   `src/lib/theme.tsx` for where `.dark` actually gets applied to `<html>`. */
 @custom-variant dark (&:is(.dark *));
 
 /* ===========================================================================
@@ -81,6 +79,13 @@
    which is a state this ledger has and most banking interfaces cannot express.
    `credit` is money coming in. An outflow is deliberately NOT red: on your own
    statement, spending is not an error.
+
+   Every one of these is overridden for `.dark` below, at the same relative
+   contrast against its background the light values hold today — this is a
+   second edition of the same ledger, not a different palette. `--color-chrome`
+   and `--color-chrome-foreground` are the one exception: the sidebar is "the
+   product's mark, not a theme" (see Sidebar.tsx), so it stays the same ink-on-
+   paper pairing in both modes rather than inverting with everything else.
    =========================================================================== */
 
 @theme {
@@ -105,6 +110,11 @@
   /* A darkened `hold`, for text that has to meet contrast on a pale amber band. */
   --color-hold-text: #8a6516;
 
+  /* Fixed, not themed: the sidebar's ink-on-paper never inverts. See the note
+     above. */
+  --color-chrome: #0e2a26;
+  --color-chrome-foreground: #fbf9f5;
+
   --font-sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
@@ -117,6 +127,30 @@
      document and the people who read one all day are on the big screens, so the
      ladder gets one more rung. */
   --breakpoint-3xl: 120rem;
+}
+
+/* The dark edition. Ink and paper swap roles — light text on a deep ground,
+   the same teal-and-parchment family read by lamplight rather than daylight —
+   rather than either flattening to neutral grey or simply inverting lightness.
+   Copper, hold, credit and danger are each lifted a little so they keep the
+   same contrast against the new ground that they held against the old one;
+   see the git history for the contrast ratios checked against each pairing. */
+.dark {
+  --color-ink: #ede6d9;
+  --color-paper: #122420;
+  --color-rule: #33453f;
+  --color-copper: #d17a3f;
+  --color-hold: #d9a53a;
+  --color-credit: #4f9484;
+
+  --color-paper-raised: #1a2f29;
+  --color-paper-sunken: #0c1815;
+  --color-ink-soft: #a8998a;
+  --color-ink-faint: #79695c;
+
+  --color-danger: #e2685a;
+  --color-danger-text: #f2a99e;
+  --color-hold-text: #f0cf8a;
 }
 
 @layer base {
@@ -336,7 +370,11 @@
   --popover: var(--color-paper-raised);
   --popover-foreground: var(--color-ink);
   --primary: var(--color-copper);
-  --primary-foreground: #ffffff;
+  /* Not a hardcoded white: copper gets brighter in `.dark` to hold its contrast
+     against a dark page, and white text on a brighter copper falls below AA. The
+     page's own ground colour is the pairing that was already verified to work
+     against copper in both editions. */
+  --primary-foreground: var(--color-paper);
   --secondary: var(--color-paper-sunken);
   --secondary-foreground: var(--color-ink);
   --muted: var(--color-paper-sunken);
@@ -352,17 +390,21 @@
      lands on the 4-6px the hand-written controls already used and nothing jumps. */
   --radius: 6px;
 
-  /* The rail is the one dark surface in the interface, inheriting the role the
-     top band used to play: the ink reads as the product's mark, not as a theme.
-     Its accents are mixed from paper so they stay in the same family instead of
-     introducing a grey. */
-  --sidebar: var(--color-ink);
-  --sidebar-foreground: var(--color-paper);
+  /* The sidebar is the one dark surface in the interface, inheriting the role
+     the top band used to play: the ink reads as the product's mark, not as a
+     theme — which is why this points at the fixed `--color-chrome` pair rather
+     than `--color-ink`/`--color-paper`. Those two invert under `.dark`; the
+     sidebar deliberately does not, the same ink-on-paper in both editions. Its
+     accents are mixed from the same fixed foreground so they stay in one
+     family instead of introducing a grey, and instead of drifting toward the
+     page's own (now dark) paper tone. */
+  --sidebar: var(--color-chrome);
+  --sidebar-foreground: var(--color-chrome-foreground);
   --sidebar-primary: var(--color-copper);
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: color-mix(in oklab, var(--color-paper) 12%, transparent);
-  --sidebar-accent-foreground: var(--color-paper);
-  --sidebar-border: color-mix(in oklab, var(--color-paper) 14%, transparent);
+  --sidebar-primary-foreground: var(--color-chrome-foreground);
+  --sidebar-accent: color-mix(in oklab, var(--color-chrome-foreground) 12%, transparent);
+  --sidebar-accent-foreground: var(--color-chrome-foreground);
+  --sidebar-border: color-mix(in oklab, var(--color-chrome-foreground) 14%, transparent);
   --sidebar-ring: var(--color-copper);
 
   /* Ordered so the first series a chart reaches for is the one that means money

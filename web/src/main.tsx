@@ -7,6 +7,7 @@ import { App } from './App'
 import { ApiError } from './api/client'
 import { TooltipProvider } from './components/ui/tooltip'
 import { SessionProvider } from './lib/session'
+import { ThemeProvider } from './lib/theme'
 import './styles.css'
 
 const queryClient = new QueryClient({
@@ -37,18 +38,22 @@ if (!root) throw new Error('#root is missing from the document')
 
 createRoot(root).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <SessionProvider>
-          {/* Required by every shadcn component that can carry a tooltip — the
-              collapsed navigation rail labels each icon with one. A short delay,
-              because a rail is somewhere a pointer passes through on its way
-              elsewhere and a tooltip that fires instantly is noise. */}
-          <TooltipProvider delayDuration={300}>
-            <App />
-          </TooltipProvider>
-        </SessionProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
+    {/* Above the router and the session: a signed-out visitor on the landing
+        page or the sign-in form gets their preferred appearance too, not
+        only somebody already inside the app. */}
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <SessionProvider>
+            {/* Required by every shadcn component that can carry a tooltip. A short
+                delay, so a pointer passing through on its way elsewhere does not
+                trigger one that fires instantly and reads as noise. */}
+            <TooltipProvider delayDuration={300}>
+              <App />
+            </TooltipProvider>
+          </SessionProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ThemeProvider>
   </StrictMode>,
 )

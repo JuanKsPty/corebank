@@ -8,8 +8,29 @@
       name="description"
       content="Banca en línea: consulta saldos, mueve dinero entre tus cuentas y pídelo en español. Nada se mueve hasta que lo confirmas."
     />
-    <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#0E2A26" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FBF9F5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#122420" media="(prefers-color-scheme: dark)" />
+
+    <!-- Applies the stored appearance (or the OS preference, on "Sistema") before
+         React ever mounts. Without this, the page always paints light first and
+         then flips — visible on every load for anyone who chose dark. Kept to
+         three lines and no template literals: this runs before anything else on
+         the page, including any bundler transform. -->
+    <script>
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('corebank.theme')
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+        } catch (e) {
+          // Storage unavailable — falls back to light, same as no preference saved.
+        }
+      })()
+    </script>
 
     <!-- The two variable faces the whole interface is set in. Preloaded because
          the greeting and every amount depend on them: without the hint they land

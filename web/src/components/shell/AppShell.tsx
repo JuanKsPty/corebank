@@ -6,8 +6,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { shell } from '@/lib/layout'
 import { cn } from '@/lib/utils'
 import { BottomTabBar } from './BottomTabBar'
-import { DesktopNav } from './DesktopNav'
 import { MobileAppBar } from './MobileAppBar'
+import { Sidebar } from './Sidebar'
 
 /**
  * The signed-in chrome.
@@ -20,9 +20,14 @@ import { MobileAppBar } from './MobileAppBar'
  * reports `false` on its first render, so a phone would paint the desktop layout for a
  * frame before correcting itself.
  *
- * So the chrome — the navbar, the app bar, the tab bar — is rendered once and revealed
+ * So the chrome — the sidebar, the app bar, the tab bar — is rendered once and revealed
  * by breakpoint, while `<main>` and its children exist exactly once at every width. The
  * pieces that are hidden are stateless, so keeping them mounted costs nothing.
+ *
+ * The sidebar turns the shell into a row rather than a column from `md` up: it is a
+ * fixed-width sibling of everything else, which itself stays a column exactly as
+ * before. Below `md` the sidebar is `hidden` and contributes no width at all, so the
+ * phone layout is unaffected by its presence in the DOM.
  *
  * The assistant is the one thing that genuinely differs: a permanent column from `xl`
  * up, and a sheet rising from the tab bar below that. Its conversation lives in the
@@ -32,7 +37,7 @@ import { MobileAppBar } from './MobileAppBar'
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <AssistantProvider>
-      <div className="flex min-h-dvh flex-col bg-paper">
+      <div className="flex min-h-dvh bg-paper">
         {/* Skip link: the first thing a keyboard reaches, and the way past the nav. */}
         <a
           href="#contenido"
@@ -44,13 +49,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           Saltar al contenido
         </a>
 
-        <DesktopNav className="hidden md:block" />
-        <MobileAppBar />
+        <Sidebar className="hidden md:flex" />
 
-        <ShellBody>{children}</ShellBody>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <MobileAppBar />
 
-        <Footer />
-        <BottomTabBar />
+          <ShellBody>{children}</ShellBody>
+
+          <Footer />
+          <BottomTabBar />
+        </div>
+
         <AssistantSheet />
       </div>
     </AssistantProvider>
@@ -91,8 +100,9 @@ function ShellBody({ children }: { children: React.ReactNode }) {
  * conversation lives in the provider, so shutting the column does not end a reply in
  * flight or lose a word of what was said.
  *
- * `sticky` against the navbar's height rather than the top of the viewport, so the
- * transcript does not slide under the chrome.
+ * `sticky` at the same offset as its own top margin, so it settles into place on load
+ * and never jumps as the page scrolls past it — there is no top bar left to clear on
+ * desktop now that the sidebar runs down the side instead of across the top.
  */
 function AssistantColumn() {
   const { docked, setDocked } = useAssistant()
@@ -102,7 +112,7 @@ function AssistantColumn() {
   return (
     <aside
       aria-label="Asistente"
-      className="sticky top-14 mb-8 mt-6 hidden h-[calc(100dvh-7rem)] w-88 shrink-0 xl:flex 2xl:w-96"
+      className="sticky top-6 mb-8 mt-6 hidden h-[calc(100dvh-3.5rem)] w-88 shrink-0 xl:flex 2xl:w-96"
     >
       <AssistantPanel
         className="card w-full overflow-hidden"

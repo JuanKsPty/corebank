@@ -131,7 +131,7 @@ export function HistoryPage() {
                 <ListFilterIcon aria-hidden="true" />
                 Filtros
                 {active > 0 && (
-                  <span className="type-figure ml-0.5 flex size-5 items-center justify-center rounded-full bg-copper text-[0.625rem] text-white">
+                  <span className="type-figure ml-0.5 flex size-5 items-center justify-center rounded-full bg-copper text-[0.625rem] text-primary-foreground">
                     {active}
                   </span>
                 )}

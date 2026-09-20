@@ -311,7 +311,7 @@ function OpenAccountDialog({ held }: { held: number }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button className="bg-copper text-white hover:bg-copper/90">
+        <Button className="bg-copper text-primary-foreground hover:bg-copper/90">
           <PlusIcon aria-hidden="true" />
           Abrir cuenta
         </Button>
@@ -411,7 +411,7 @@ function OpenAccountDialog({ held }: { held: number }) {
           <Button
             onClick={submit}
             disabled={openAccount.isPending}
-            className="bg-copper text-white hover:bg-copper/90"
+            className="bg-copper text-primary-foreground hover:bg-copper/90"
           >
             {openAccount.isPending && <Spinner />}
             Abrir cuenta
