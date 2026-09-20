@@ -73,7 +73,11 @@ export function LandingPage() {
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Button asChild size="lg" className="bg-copper text-primary-foreground hover:bg-copper/90">
+              <Button
+                asChild
+                size="lg"
+                className="bg-copper text-primary-foreground hover:bg-copper/90"
+              >
                 <Link to="/entrar">Entrar</Link>
               </Button>
               <Button asChild variant="outline" size="lg">

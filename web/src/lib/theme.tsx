@@ -29,7 +29,9 @@ const THEME_KEY = 'corebank.theme'
 function readTheme(): Theme {
   try {
     const stored = window.localStorage.getItem(THEME_KEY)
-    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+    return stored === 'light' || stored === 'dark' || stored === 'system'
+      ? stored
+      : 'system'
   } catch {
     // Private browsing, or storage disabled. The preference is not important enough to
     // fail over.

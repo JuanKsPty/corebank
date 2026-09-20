@@ -4,11 +4,22 @@ import type { Theme } from '@/lib/theme'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
-const OPTIONS: Array<{ value: Theme; label: string; blurb: string; icon: typeof SunIcon }> = [
-  { value: 'light', label: 'Claro', blurb: 'Papel y tinta, como hoy', icon: SunIcon },
-  { value: 'dark', label: 'Oscuro', blurb: 'La misma libreta, leída de noche', icon: MoonIcon },
-  { value: 'system', label: 'Sistema', blurb: 'Sigue lo que diga tu dispositivo', icon: LaptopIcon },
-]
+const OPTIONS: Array<{ value: Theme; label: string; blurb: string; icon: typeof SunIcon }> =
+  [
+    { value: 'light', label: 'Claro', blurb: 'Papel y tinta, como hoy', icon: SunIcon },
+    {
+      value: 'dark',
+      label: 'Oscuro',
+      blurb: 'La misma libreta, leída de noche',
+      icon: MoonIcon,
+    },
+    {
+      value: 'system',
+      label: 'Sistema',
+      blurb: 'Sigue lo que diga tu dispositivo',
+      icon: LaptopIcon,
+    },
+  ]
 
 /**
  * Ajustes: the one preference corebank has that isn't about money.

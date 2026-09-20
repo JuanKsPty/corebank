@@ -368,7 +368,9 @@ function DeviceCard({
             type="button"
             variant={deviceEnabled ? 'outline' : undefined}
             className={
-              deviceEnabled ? 'mt-4' : 'mt-4 bg-copper text-primary-foreground hover:bg-copper/90'
+              deviceEnabled
+                ? 'mt-4'
+                : 'mt-4 bg-copper text-primary-foreground hover:bg-copper/90'
             }
             disabled={pending}
             onClick={() => void handleToggle()}
