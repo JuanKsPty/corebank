@@ -1,4 +1,11 @@
-import { LogOutIcon, SettingsIcon, ShieldIcon, SparklesIcon } from 'lucide-react'
+import {
+  LaptopIcon,
+  LogOutIcon,
+  MoonIcon,
+  ShieldIcon,
+  SparklesIcon,
+  SunIcon,
+} from 'lucide-react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { useAssistant } from '@/components/assistant/AssistantProvider'
@@ -14,22 +21,27 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ROUTES } from '@/lib/nav'
 import { useSession } from '@/lib/session'
+import { nextTheme, THEME_LABEL, useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
+
+const THEME_ICON = { light: SunIcon, dark: MoonIcon, system: LaptopIcon } as const
 
 /**
  * The desktop navigation: one ink column down the left, not a band across the top.
  *
  * A rail was tried and removed once, when the argument against it held: three
- * destinations did not earn 16rem. That argument is gone — Asistente, Ajustes and a
- * user menu all live here now too, and this is deliberately the shape corebank's own
- * owner reaches for elsewhere (Dokploy, GitHub) rather than a tab strip. It is still
- * the only dark surface in the interface, still the product's mark rather than a
- * theme — that part carries over unchanged, just turned ninety degrees.
+ * destinations did not earn 16rem. That argument is gone — Asistente and a user menu
+ * live here now too, and this is deliberately the shape corebank's own owner reaches
+ * for elsewhere (Dokploy, GitHub) rather than a tab strip. It is still the only dark
+ * surface in the interface, still the product's mark rather than a theme — that part
+ * carries over unchanged, just turned ninety degrees.
  */
 export function Sidebar({ className }: { className?: string }) {
   const { user, signOut } = useSession()
   const { setOpen: setAssistantOpen, docked, setDocked, pendingCount } = useAssistant()
+  const { theme, setTheme } = useTheme()
   const location = useLocation()
+  const ThemeIcon = THEME_ICON[theme]
 
   const firstName = user?.full_name.split(' ')[0] ?? ''
 
@@ -141,11 +153,9 @@ export function Sidebar({ className }: { className?: string }) {
               {user?.full_name}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link to="/ajustes">
-                <SettingsIcon aria-hidden="true" />
-                Ajustes
-              </Link>
+            <DropdownMenuItem onSelect={() => setTheme(nextTheme(theme))}>
+              <ThemeIcon aria-hidden="true" />
+              {THEME_LABEL[theme]}
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to="/seguridad">

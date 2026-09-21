@@ -14,6 +14,24 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 export type Theme = 'light' | 'dark' | 'system'
 
+const THEME_CYCLE: Record<Theme, Theme> = {
+  light: 'dark',
+  dark: 'system',
+  system: 'light',
+}
+
+/** Claro → Oscuro → Sistema → Claro, for the single button that replaced the
+ * old three-option Ajustes page — one click, one step forward. */
+export function nextTheme(theme: Theme): Theme {
+  return THEME_CYCLE[theme]
+}
+
+export const THEME_LABEL: Record<Theme, string> = {
+  light: 'Claro',
+  dark: 'Oscuro',
+  system: 'Sistema',
+}
+
 interface ThemeContextValue {
   theme: Theme
   setTheme: (value: Theme) => void

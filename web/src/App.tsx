@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { useSession } from '@/lib/session'
 import { AccountPage } from '@/pages/AccountPage'
 import { AccountsPage } from '@/pages/AccountsPage'
-import { AjustesPage } from '@/pages/AjustesPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { ImportedAccountPage } from '@/pages/ImportedAccountPage'
@@ -43,7 +42,6 @@ export function App() {
         <Route path="/historial" element={<RedirectToSignIn />} />
         <Route path="/cuentas/:number" element={<RedirectToSignIn />} />
         <Route path="/seguridad" element={<RedirectToSignIn />} />
-        <Route path="/ajustes" element={<RedirectToSignIn />} />
         <Route path="/tarjetas/:id" element={<RedirectToSignIn />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -62,7 +60,6 @@ export function App() {
         <Route path="/historial" element={<HistoryPage />} />
         <Route path="/cuentas/:number" element={<AccountPage />} />
         <Route path="/seguridad" element={<SecurityPage />} />
-        <Route path="/ajustes" element={<AjustesPage />} />
         <Route path="/tarjetas/:id" element={<ImportedAccountPage />} />
         <Route path="/" element={<Navigate to="/panel" replace />} />
         {/* Somebody who signed in from the login page lands on their accounts rather
