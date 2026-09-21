@@ -1,11 +1,19 @@
-import { CircleAlertIcon, PencilIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import {
+  CircleAlertIcon,
+  PencilIcon,
+  ScaleIcon,
+  Trash2Icon,
+  UploadIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
+import { newIdempotencyKey } from '@/api/endpoints'
 import type { Account, InvestmentLinkStatus } from '@/api/types'
 import { ImportStatementDialog } from '@/components/ImportStatementDialog'
 import { MovementList } from '@/components/MovementList'
+import { ReconcileBalanceDialog } from '@/components/ReconcileBalanceDialog'
 import { BalanceComposition, Figure } from '@/components/primitives'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -40,6 +48,7 @@ import {
   useLinkInvestmentAccount,
   useMe,
   usePortfolio,
+  useReconcileAccount,
   useRenameAccount,
   useSyncInvestmentAccount,
 } from '@/lib/queries'
@@ -124,7 +133,10 @@ export function AccountPage() {
 
             <RenameAccount account={account} />
             {account.account_type !== 'investment' && (
-              <ImportStatementAction account={account} />
+              <>
+                <ImportStatementAction account={account} />
+                <ReconcileBalanceAction account={account} />
+              </>
             )}
             <DeleteAccountAction account={account} />
 
@@ -328,6 +340,45 @@ function ImportStatementAction({ account }: { account: Account }) {
           <Button variant="outline" size="sm">
             <UploadIcon aria-hidden="true" />
             Importar estado de cuenta
+          </Button>
+        }
+      />
+    </div>
+  )
+}
+
+/**
+ * Correcting a real account's balance, from the account it belongs to.
+ *
+ * Hidden on an investment account for the same reason ImportStatementAction
+ * is: its cash comes from an IBKR sync, not a bank-statement import that
+ * could have miscounted a row.
+ */
+function ReconcileBalanceAction({ account }: { account: Account }) {
+  const reconcile = useReconcileAccount()
+  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey)
+
+  return (
+    <div className="mt-3">
+      <ReconcileBalanceDialog
+        currentBalance={account.posted}
+        isPending={reconcile.isPending}
+        error={reconcile.error}
+        reset={() => {
+          reconcile.reset()
+          setIdempotencyKey(newIdempotencyKey())
+        }}
+        onReconcile={(targetBalance) =>
+          reconcile.mutateAsync({
+            accountNumber: account.account_number,
+            targetBalance,
+            idempotencyKey,
+          })
+        }
+        trigger={
+          <Button variant="outline" size="sm">
+            <ScaleIcon aria-hidden="true" />
+            Sincerar saldo
           </Button>
         }
       />

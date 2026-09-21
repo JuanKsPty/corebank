@@ -55,6 +55,10 @@ var (
 	// ErrNotFound at the HTTP layer: telling them apart would let a client
 	// probe for valid transaction ids.
 	ErrTransactionNotFound = errors.New("transactions: transaction not found")
+
+	// ErrAlreadyReconciled means the account's balance already matched the
+	// stated true value, so Reconcile posted nothing.
+	ErrAlreadyReconciled = errors.New("transactions: balance already matches")
 )
 
 // Service performs and records movements.
@@ -132,6 +136,69 @@ func (s *Service) Withdraw(ctx context.Context, userID uuid.UUID, req Request) (
 		amount:      req.Amount,
 		description: defaultDescription(req.Description, "Retiro"),
 		origin:      req.Origin,
+		idempotency: req.IdempotencyKey,
+	})
+}
+
+// ReconcileRequest states what a real account's balance should actually be,
+// read off the customer's own bank — distinct from Request because the shape
+// is different: a target balance, not an amount to move.
+type ReconcileRequest struct {
+	Account        string
+	TargetBalance  money.Cents
+	IdempotencyKey string
+}
+
+// Reconcile brings a real account's ledger balance to a stated true value.
+//
+// TigerBeetle has no way to edit or delete a posted transfer, so a wrong
+// balance — most often left by a bank import that miscounted or misread a
+// statement — can only be fixed by posting one more corrective deposit or
+// withdrawal for exactly the difference, the same mechanism every ordinary
+// movement already uses. It reconciles against Posted specifically: the
+// settled figure a bank statement's ending balance corresponds to, the same
+// one accounts.Service.Delete treats as ground truth. Any active Held amount
+// is untouched. This never goes through the pending-hold path Withdraw can
+// optionally take — it is a single self-directed correction, not money going
+// to a third party, so it always posts immediately.
+func (s *Service) Reconcile(ctx context.Context, userID uuid.UUID, req ReconcileRequest) (store.Transaction, error) {
+	account, err := s.resolveOwn(ctx, userID, req.Account)
+	if err != nil {
+		return store.Transaction{}, err
+	}
+
+	balances, err := s.book.Balances(ctx, []ledger.AccountID{account.LedgerID})
+	if err != nil {
+		return store.Transaction{}, fmt.Errorf("transactions: reading balance: %w", err)
+	}
+
+	delta := req.TargetBalance - balances[account.LedgerID].Posted
+	if delta == 0 {
+		return store.Transaction{}, ErrAlreadyReconciled
+	}
+
+	if delta > 0 {
+		return s.post(ctx, userID, movement{
+			kind:        ledger.MovementDeposit,
+			from:        ledger.WorldAccountID,
+			to:          account.LedgerID,
+			fromNumber:  store.ExternalAccount,
+			toNumber:    account.Number,
+			amount:      delta,
+			description: "Ajuste de conciliación",
+			origin:      store.OriginReconcile,
+			idempotency: req.IdempotencyKey,
+		})
+	}
+	return s.post(ctx, userID, movement{
+		kind:        ledger.MovementWithdrawal,
+		from:        account.LedgerID,
+		to:          ledger.WorldAccountID,
+		fromNumber:  account.Number,
+		toNumber:    store.ExternalAccount,
+		amount:      -delta,
+		description: "Ajuste de conciliación",
+		origin:      store.OriginReconcile,
 		idempotency: req.IdempotencyKey,
 	})
 }
@@ -633,7 +700,7 @@ func defaultDescription(given, fallback string) string {
 
 func originOrDefault(origin string) string {
 	switch origin {
-	case store.OriginChat, store.OriginIBKRSync:
+	case store.OriginChat, store.OriginIBKRSync, store.OriginBankImport, store.OriginReconcile:
 		return origin
 	default:
 		return store.OriginAPI

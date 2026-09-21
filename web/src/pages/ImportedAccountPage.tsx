@@ -1,4 +1,4 @@
-import { Trash2Icon, UploadIcon } from 'lucide-react'
+import { ScaleIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client'
 import type { ExternalAccount } from '@/api/types'
 import { Figure } from '@/components/primitives'
 import { ImportStatementDialog } from '@/components/ImportStatementDialog'
+import { ReconcileBalanceDialog } from '@/components/ReconcileBalanceDialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -34,6 +35,7 @@ import {
   useExternalAccounts,
   useExternalTransactions,
   useImportHistory,
+  useReconcileExternalAccount,
   useSetExternalTransactionCategory,
   useSpendByCategory,
 } from '@/lib/queries'
@@ -114,6 +116,7 @@ export function ImportedAccountPage() {
                   </Button>
                 }
               />
+              <ReconcileBalanceAction account={account} />
               <DeleteCardAction account={account} />
             </div>
           </>
@@ -133,6 +136,36 @@ export function ImportedAccountPage() {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Correcting a card's declared balance, from the card's own page.
+ *
+ * declared_balance is a sum over whatever rows were imported, with no
+ * concept of an opening balance for a card — see ExternalAccount's own doc
+ * comment — so a partial import history, a double-counted row or a
+ * misread column all show up here, with no way to tell which one it was
+ * from the outside. Stating the true balance sidesteps the question
+ * entirely: one adjustment row, and the sum lands where it should.
+ */
+function ReconcileBalanceAction({ account }: { account: ExternalAccount }) {
+  const reconcile = useReconcileExternalAccount(account.id)
+
+  return (
+    <ReconcileBalanceDialog
+      currentBalance={account.declared_balance}
+      isPending={reconcile.isPending}
+      error={reconcile.error}
+      reset={() => reconcile.reset()}
+      onReconcile={(targetBalance) => reconcile.mutateAsync(targetBalance)}
+      trigger={
+        <Button variant="outline" size="sm">
+          <ScaleIcon aria-hidden="true" />
+          Sincerar saldo
+        </Button>
+      }
+    />
   )
 }
 

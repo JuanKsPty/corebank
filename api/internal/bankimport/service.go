@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -62,6 +63,10 @@ var (
 	// without touching the real account it belongs to; there is no path
 	// through this package for that, only through accounts.Service.Delete.
 	ErrCardLinked = errors.New("bankimport: not a card")
+
+	// ErrAlreadyReconciled means a card's declared balance already matched
+	// the stated true value, so Reconcile inserted nothing.
+	ErrAlreadyReconciled = errors.New("bankimport: declared balance already matches")
 )
 
 // Service imports bank statement files and serves the accounts and
@@ -603,6 +608,52 @@ func (s *Service) DeleteAccount(ctx context.Context, userID uuid.UUID, accountID
 		return fmt.Errorf("%w: %s", ErrCardLinked, accountID)
 	}
 	return s.db.Q().DeleteImportedAccount(ctx, accountID)
+}
+
+// Reconcile brings a card's declared balance to a stated true value.
+//
+// declared_balance is never a stored column — DeclaredBalances sums
+// external_transactions live — so reconciling it is just inserting one more
+// row: a synthetic adjustment for whatever delta makes the sum land on the
+// target. No schema change, no TigerBeetle involvement (a card never touches
+// the ledger, and this doesn't change that), and the adjustment shows up in
+// the card's own movement list like any other imported row, for the same
+// transparency reason a real account's reconciliation stays visible in
+// history — see transactions.Service.Reconcile for that mirror.
+func (s *Service) Reconcile(ctx context.Context, userID uuid.UUID, accountID uuid.UUID, target money.Cents) error {
+	account, err := s.resolve(ctx, userID, accountID)
+	if err != nil {
+		return err
+	}
+	if account.LinkedAccountID != nil {
+		return fmt.Errorf("%w: %s", ErrCardLinked, accountID)
+	}
+
+	balances, err := s.db.Q().DeclaredBalances(ctx, []uuid.UUID{accountID})
+	if err != nil {
+		return err
+	}
+	delta := int64(target) - balances[accountID]
+	if delta == 0 {
+		return ErrAlreadyReconciled
+	}
+
+	_, _, err = s.db.Q().InsertExternalTransactionIfNew(ctx, store.ExternalTransaction{
+		ID:                uuid.New(),
+		ImportedAccountID: accountID,
+		// No import batch: this row did not come from a file.
+		ImportBatchID: nil,
+		// A file-derived dedup key can collide across imports on purpose, so
+		// two statements covering the same period dedupe correctly. An
+		// adjustment has no source file to collide with, so a fresh key is
+		// exactly right — it can never be mistaken for, or overwritten by, a
+		// later real import.
+		DedupKey:    "reconcile:" + uuid.New().String(),
+		OccurredAt:  time.Now().UTC(),
+		AmountCents: delta,
+		Description: "Ajuste de saldo declarado",
+	})
+	return err
 }
 
 // resolve finds an external account by id and checks that userID owns it.

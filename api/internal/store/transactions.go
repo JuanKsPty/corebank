@@ -51,6 +51,11 @@ const (
 	// OriginBankImport marks a movement a bank-account statement import
 	// posted, the same way OriginIBKRSync marks one an IBKR sync posted.
 	OriginBankImport = "bank_import"
+	// OriginReconcile marks a corrective deposit or withdrawal the customer
+	// posted to bring a real account's balance in line with a true value they
+	// stated themselves, after a bank import got it wrong. See
+	// transactions.Service.Reconcile.
+	OriginReconcile = "reconcile"
 )
 
 // ExternalAccount is the counterparty for money entering or leaving the bank.
@@ -417,7 +422,11 @@ func (q *Queries) DailyFlowWindow(ctx context.Context, accounts []string, days i
 //
 // Aggregated in SQL rather than by loading rows and summing in Go: the seeded
 // history is thousands of movements per account, and a chart needs a few dozen
-// points.
+// points. A reconciliation adjustment (origin 'reconcile') is excluded: it
+// corrects a balance a bank import got wrong, it is not income or spending,
+// and folding a one-off correction into the flow chart would read as an
+// invented swing in the customer's actual activity. It still appears in the
+// plain movement history — only this aggregate leaves it out.
 func (q *Queries) DailyFlow(ctx context.Context, accounts []string, since time.Time) ([]FlowPoint, error) {
 	const query = `
 		SELECT date_trunc('day', occurred_at) AS day,
@@ -426,6 +435,7 @@ func (q *Queries) DailyFlow(ctx context.Context, accounts []string, since time.T
 		FROM transactions
 		WHERE (from_account = ANY($1) OR to_account = ANY($1))
 		  AND status = 'completed'
+		  AND origin != 'reconcile'
 		  AND occurred_at >= $2
 		GROUP BY day
 		ORDER BY day`
@@ -448,6 +458,7 @@ func (q *Queries) DailyFlowUntil(ctx context.Context, accounts []string, since, 
 		FROM transactions
 		WHERE (from_account = ANY($1) OR to_account = ANY($1))
 		  AND status = 'completed'
+		  AND origin != 'reconcile'
 		  AND occurred_at >= $2 AND occurred_at <= $3
 		GROUP BY day
 		ORDER BY day`

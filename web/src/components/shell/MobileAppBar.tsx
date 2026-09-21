@@ -1,4 +1,11 @@
-import { ChevronLeftIcon, LogOutIcon, SettingsIcon, ShieldIcon } from 'lucide-react'
+import {
+  ChevronLeftIcon,
+  LaptopIcon,
+  LogOutIcon,
+  MoonIcon,
+  ShieldIcon,
+  SunIcon,
+} from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { Wordmark } from '@/components/Wordmark'
@@ -13,7 +20,10 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { gutter } from '@/lib/layout'
 import { useSession } from '@/lib/session'
+import { nextTheme, THEME_LABEL, useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
+
+const THEME_ICON = { light: SunIcon, dark: MoonIcon, system: LaptopIcon } as const
 
 /**
  * The phone's top bar, which changes shape depending on where you are.
@@ -27,11 +37,13 @@ import { cn } from '@/lib/utils'
  */
 export function MobileAppBar() {
   const { user, signOut } = useSession()
+  const { theme, setTheme } = useTheme()
   const location = useLocation()
   const navigate = useNavigate()
 
   const detail = detailTitle(location.pathname)
   const firstName = user?.full_name.split(' ')[0] ?? ''
+  const ThemeIcon = THEME_ICON[theme]
 
   return (
     <header className={cn('sticky top-0 z-30 bg-chrome text-chrome-foreground md:hidden')}>
@@ -74,11 +86,9 @@ export function MobileAppBar() {
                 {user?.full_name}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link to="/ajustes">
-                  <SettingsIcon aria-hidden="true" />
-                  Ajustes
-                </Link>
+              <DropdownMenuItem onSelect={() => setTheme(nextTheme(theme))}>
+                <ThemeIcon aria-hidden="true" />
+                {THEME_LABEL[theme]}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/seguridad">
@@ -120,7 +130,6 @@ function detailTitle(pathname: string): string | null {
   if (pathname.startsWith('/cuentas/')) return 'Detalle de cuenta'
   if (pathname === '/cuentas') return 'Tus cuentas'
   if (pathname === '/seguridad') return 'Seguridad'
-  if (pathname === '/ajustes') return 'Ajustes'
   if (pathname.startsWith('/tarjetas/')) return 'Tarjeta'
   return null
 }

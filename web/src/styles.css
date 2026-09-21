@@ -3,9 +3,10 @@
 @import 'shadcn/tailwind.css';
 
 /* The `dark` variant is bound to a `.dark` ancestor rather than left on Tailwind's
-   default of `prefers-color-scheme`, because the choice is the customer's — set
-   from /ajustes, or "Sistema" tracking their OS — not the browser's alone. See
-   `src/lib/theme.tsx` for where `.dark` actually gets applied to `<html>`. */
+   default of `prefers-color-scheme`, because the choice is the customer's — set from
+   the theme toggle in the account menu, or "Sistema" tracking their OS — not the
+   browser's alone. See `src/lib/theme.tsx` for where `.dark` actually gets applied
+   to `<html>`. */
 @custom-variant dark (&:is(.dark *));
 
 /* ===========================================================================
@@ -134,19 +135,30 @@
    rather than either flattening to neutral grey or simply inverting lightness.
    Copper, hold, credit and danger are each lifted a little so they keep the
    same contrast against the new ground that they held against the old one;
-   see the git history for the contrast ratios checked against each pairing. */
+   see the git history for the contrast ratios checked against each pairing.
+
+   Surfaces and `ink-faint` were tuned again for more separation: the first
+   pass mirrored light mode's own subtle paper/card/well steps too literally
+   — light mode gets a depth cue from shadows that a dark ground can't use,
+   so the same ratio reads as flatter here. `ink-faint` also fell below its
+   own light-mode reference (2.69:1 against a card, when light mode holds
+   3.25:1) — computed with the same WCAG relative-luminance script used
+   elsewhere in this file's history; every text pairing below now clears
+   4.5:1 against both `paper` and `paper-raised` except `copper`, which
+   holds 4.0:1 against a card — still comfortably above the 3:1 floor for
+   an accent/icon colour. */
 .dark {
   --color-ink: #ede6d9;
-  --color-paper: #122420;
-  --color-rule: #33453f;
+  --color-paper: #0e1b18;
+  --color-rule: #527a6d;
   --color-copper: #d17a3f;
   --color-hold: #d9a53a;
   --color-credit: #4f9484;
 
-  --color-paper-raised: #1a2f29;
-  --color-paper-sunken: #0c1815;
+  --color-paper-raised: #213630;
+  --color-paper-sunken: #070e0c;
   --color-ink-soft: #a8998a;
-  --color-ink-faint: #79695c;
+  --color-ink-faint: #ab9a8c;
 
   --color-danger: #e2685a;
   --color-danger-text: #f2a99e;
