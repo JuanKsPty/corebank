@@ -90,9 +90,9 @@ export interface Transaction {
   to_account?: string
   description: string
   /** Whether the customer did this themselves, the assistant did it for them,
-   * or corebank posted it on its own initiative from an IBKR or bank-import
-   * sync. */
-  origin: 'api' | 'chat' | 'ibkr_sync' | 'bank_import'
+   * corebank posted it on its own initiative from an IBKR or bank-import
+   * sync, or it is a "sincerar saldo" correction. */
+  origin: 'api' | 'chat' | 'ibkr_sync' | 'bank_import' | 'reconcile'
   failure_code?: string
   confirmation?: Confirmation
   occurred_at: string
@@ -265,6 +265,16 @@ export interface ExternalAccount {
   currency: string
   declared_balance: Amount
   created_at: string
+}
+
+/**
+ * The outcome of "sincerar saldo" (a manual balance correction). `adjusted`
+ * is false when the stated balance already matched — nothing was posted, so
+ * there is nothing new to show.
+ */
+export interface ReconcileResult {
+  adjusted: boolean
+  transaction?: Transaction
 }
 
 export interface ExternalTransaction {

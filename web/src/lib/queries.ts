@@ -89,6 +89,28 @@ export function useMovement(kind: 'deposit' | 'withdraw' | 'transfer') {
   })
 }
 
+/**
+ * Corrects a real account's balance ("sincerar saldo"). Same invalidation as
+ * any movement, since a correction is exactly that: a deposit or withdrawal
+ * corebank posted for the customer.
+ */
+export function useReconcileAccount() {
+  const invalidate = useMoneyInvalidation()
+
+  return useMutation({
+    mutationFn: ({
+      accountNumber,
+      targetBalance,
+      idempotencyKey,
+    }: {
+      accountNumber: string
+      targetBalance: string
+      idempotencyKey: string
+    }) => api.reconcileAccount(accountNumber, targetBalance, idempotencyKey),
+    onSuccess: invalidate,
+  })
+}
+
 export function useResolveConfirmation() {
   const invalidate = useMoneyInvalidation()
 
@@ -356,6 +378,26 @@ export function useDeleteExternalAccount() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.externalAccounts })
       void queryClient.invalidateQueries({ queryKey: keys.dashboard })
+    },
+  })
+}
+
+/**
+ * Corrects a card's declared balance ("sincerar saldo") by inserting one
+ * adjustment row. Invalidates the card's own transactions too, since the new
+ * row shows up right there in "Movimientos" — not just in declared_balance.
+ */
+export function useReconcileExternalAccount(externalAccountId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (targetBalance: string) =>
+      api.reconcileExternalAccount(externalAccountId, targetBalance),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.externalAccounts })
+      void queryClient.invalidateQueries({
+        queryKey: keys.externalTransactions(externalAccountId),
+      })
     },
   })
 }

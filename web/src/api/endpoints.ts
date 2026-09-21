@@ -17,6 +17,7 @@ import type {
   Me,
   MovementKind,
   Portfolio,
+  ReconcileResult,
   SecurityStatus,
   Session,
   Transaction,
@@ -170,6 +171,26 @@ export function deleteAccount(accountNumber: string) {
 }
 
 /**
+ * Brings a real account's balance to a stated true value ("sincerar saldo"),
+ * by posting one corrective deposit or withdrawal for the difference —
+ * TigerBeetle has no way to edit or delete a past movement, so this is the
+ * only way to fix a balance a bank import got wrong. targetBalance is a
+ * decimal string, the same as a movement amount, but unlike one it may be
+ * zero or negative (an empty or overdrawn account is a valid true balance).
+ */
+export function reconcileAccount(
+  accountNumber: string,
+  targetBalance: string,
+  idempotencyKey: string,
+) {
+  return request<ReconcileResult>('/api/transactions/reconcile', {
+    method: 'POST',
+    body: { account_number: accountNumber, target_balance: targetBalance },
+    idempotencyKey,
+  })
+}
+
+/**
  * The filters, as the API takes them.
  *
  * Shared by the paginated view and the CSV export so the file can only ever describe
@@ -287,6 +308,21 @@ export const deleteExternalAccount = (externalAccountId: string) =>
   request<void>(`/api/external-accounts/${encodeURIComponent(externalAccountId)}`, {
     method: 'DELETE',
   })
+
+/**
+ * Brings a card's declared balance to a stated true value ("sincerar
+ * saldo"), by inserting one adjustment row for the difference —
+ * declared_balance is always a live sum over external_transactions, never a
+ * stored figure, so this never touches the ledger (a card never does).
+ */
+export const reconcileExternalAccount = (
+  externalAccountId: string,
+  targetBalance: string,
+) =>
+  request<ReconcileResult>(
+    `/api/external-accounts/${encodeURIComponent(externalAccountId)}/reconcile`,
+    { method: 'POST', body: { target_balance: targetBalance } },
+  )
 
 export function fetchExternalTransactions(externalAccountId: string, limit?: number) {
   const qs = limit ? `?limit=${limit}` : ''

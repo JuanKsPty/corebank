@@ -11,6 +11,7 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
 	"github.com/JuanKsPty/corebank/api/internal/identity"
+	"github.com/JuanKsPty/corebank/api/internal/money"
 )
 
 // maxUploadSize bounds a statement upload. The largest real file seen while
@@ -39,6 +40,7 @@ func (h *Handler) Routes() http.Handler {
 	r.Get("/", h.list)
 	r.Post("/import", h.importFile)
 	r.Delete("/{id}", h.delete)
+	r.Post("/{id}/reconcile", h.reconcile)
 	r.Get("/{id}/transactions", h.transactions)
 	r.Get("/{id}/imports", h.imports)
 	r.Get("/{id}/spend-by-category", h.spendByCategory)
@@ -103,6 +105,51 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.NoContent(w)
+}
+
+// reconcileRequest states what a card's declared balance should actually be.
+// Parsed with money.Parse rather than a stricter positive-only parser: zero
+// and negative are both valid declared balances, not a client mistake.
+type reconcileRequest struct {
+	TargetBalance money.Input `json:"target_balance"`
+}
+
+type reconcileResponse struct {
+	// Adjusted is false when the stated balance already matched — nothing
+	// was inserted.
+	Adjusted bool `json:"adjusted"`
+}
+
+func (h *Handler) reconcile(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Fail(w, r, httpx.NotFound("account_not_found", "La cuenta importada no existe."))
+		return
+	}
+
+	var body reconcileRequest
+	if err := httpx.Decode(w, r, &body); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	target, err := money.Parse(string(body.TargetBalance))
+	if err != nil {
+		httpx.Fail(w, r, httpx.Invalid(map[string]string{
+			"target_balance": "El saldo no tiene un formato válido. Usa por ejemplo «100.50».",
+		}))
+		return
+	}
+
+	if err := h.svc.Reconcile(r.Context(), identity.MustFromContext(r.Context()), id, target); err != nil {
+		if errors.Is(err, ErrAlreadyReconciled) {
+			httpx.JSON(w, r, http.StatusOK, reconcileResponse{Adjusted: false})
+			return
+		}
+		httpx.Fail(w, r, translate(err))
+		return
+	}
+	httpx.JSON(w, r, http.StatusCreated, reconcileResponse{Adjusted: true})
 }
 
 func (h *Handler) importFile(w http.ResponseWriter, r *http.Request) {

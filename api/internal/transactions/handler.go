@@ -44,6 +44,7 @@ func (h *Handler) Routes() http.Handler {
 	r.Post("/deposit", h.deposit)
 	r.Post("/withdraw", h.withdraw)
 	r.Post("/transfer", h.transfer)
+	r.Post("/reconcile", h.reconcile)
 
 	// Resolving a movement the assistant proposed. Mounted here rather than under
 	// /api/chat because it is a banking operation, not a conversation one: it
@@ -177,6 +178,62 @@ func (h *Handler) transfer(w http.ResponseWriter, r *http.Request) {
 	h.move(w, r, true, func(userID uuid.UUID, req Request) (store.Transaction, error) {
 		return h.svc.Transfer(r.Context(), userID, req)
 	})
+}
+
+// reconcileRequest is the body of a balance correction. TargetBalance is
+// parsed with money.Parse rather than money.Input.Cents: unlike a movement
+// amount, zero and negative are both valid balances (an empty account, an
+// overdrawn one), not a client mistake.
+type reconcileRequest struct {
+	Account       string      `json:"account_number"`
+	TargetBalance money.Input `json:"target_balance"`
+}
+
+type reconcileResponse struct {
+	// Adjusted is false when the stated balance already matched — nothing was
+	// posted, so there is no Transaction to show.
+	Adjusted    bool  `json:"adjusted"`
+	Transaction *View `json:"transaction,omitempty"`
+}
+
+func (h *Handler) reconcile(w http.ResponseWriter, r *http.Request) {
+	var body reconcileRequest
+	if err := httpx.Decode(w, r, &body); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+
+	target, err := money.Parse(string(body.TargetBalance))
+	if err != nil {
+		httpx.Fail(w, r, httpx.Invalid(map[string]string{
+			"target_balance": amountProblem(err),
+		}))
+		return
+	}
+
+	key := r.Header.Get(idempotencyHeader)
+	if len(key) > 128 {
+		httpx.Fail(w, r, httpx.BadRequest("idempotency_key_too_long",
+			"El encabezado Idempotency-Key admite como máximo 128 caracteres."))
+		return
+	}
+
+	tx, err := h.svc.Reconcile(r.Context(), identity.MustFromContext(r.Context()), ReconcileRequest{
+		Account:        body.Account,
+		TargetBalance:  target,
+		IdempotencyKey: key,
+	})
+	if err != nil {
+		if errors.Is(err, ErrAlreadyReconciled) {
+			httpx.JSON(w, r, http.StatusOK, reconcileResponse{Adjusted: false})
+			return
+		}
+		httpx.Fail(w, r, translate(err))
+		return
+	}
+
+	view := newView(tx)
+	httpx.JSON(w, r, http.StatusCreated, reconcileResponse{Adjusted: true, Transaction: &view})
 }
 
 // move is the shared body of the three money-moving endpoints: decode, validate,
