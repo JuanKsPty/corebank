@@ -56,7 +56,7 @@ export function LandingPage() {
 
       <footer className={cn('border-t border-rule py-5', gutter)}>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[0.75rem]">
-          <p className="text-ink-faint">Go · TigerBeetle · React · asistente por MCP</p>
+          <p className="text-ink-faint">Go · PostgreSQL · React · asistente por MCP</p>
         </div>
       </footer>
     </div>

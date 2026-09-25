@@ -10,11 +10,9 @@
 // alive. Live intraday quotes are the one thing this trades away, and are
 // deliberately out of scope for this package.
 //
-// This package knows nothing about corebank's ledger, its accounts or its
-// database — it only fetches and parses IBKR's own XML, exactly the way
-// internal/tigerbeetle isolates that vendor's client from the domain that
-// uses it. See internal/investments for how a parsed Statement becomes
-// corebank data.
+// This package knows nothing about corebank's accounts or its database — it
+// only fetches and parses IBKR's own XML. See internal/investments for how a
+// parsed Statement becomes corebank data.
 //
 // # Unverified against a live account
 //

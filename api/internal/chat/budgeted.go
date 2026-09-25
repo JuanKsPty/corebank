@@ -122,8 +122,7 @@ func (k dbKeeper) Remaining(ctx context.Context) (int64, error) {
 // two statements and twenty concurrent requests all read the same encouraging
 // number. A call reserves its estimated cost before it is made, for exactly that
 // reason, and settles the real figure afterwards. The ceiling holds under
-// concurrency because the check and the increment are a single statement — the
-// same shape as the ledger's own refusal to let debits exceed credits.
+// concurrency because the check and the increment are a single statement.
 //
 // What this does and does not guarantee, precisely. A call cannot begin unless its
 // *estimated* cost fits under every ceiling, and the estimate is deliberately high:

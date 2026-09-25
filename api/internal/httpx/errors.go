@@ -21,7 +21,7 @@ import (
 // Message is user-facing and in Spanish, matching the interface. Code is a
 // stable machine-readable identifier the frontend can branch on without
 // matching prose. cause is logged but never serialised: it is where the
-// database driver's or the ledger's own wording stays.
+// database driver's own wording stays.
 type Error struct {
 	Status  int
 	Code    string

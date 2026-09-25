@@ -1,7 +1,7 @@
-# The two data stores, for running the API and the interface from source.
+# The database, for running the API and the interface from source.
 #
-# Same project name and same volume names as docker-compose.yml, so this is the same
-# data: seed once and it is there whichever way the stack is started.
+# Same project name and same volume name as docker-compose.yml, so this is the same
+# data whichever way the stack is started.
 
 name: corebank
 
@@ -25,60 +25,5 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  # `format` must run exactly once per data file: twice destroys the ledger, never
-  # fails to start. Idempotent, and the replica waits for it.
-  tigerbeetle-format:
-    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.9
-    security_opt:
-      # Docker's default profile blocks the io_uring syscalls TigerBeetle needs.
-      - seccomp=unconfined
-    volumes:
-      - tb-data:/data
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -e
-        if [ -f /data/0_0.tigerbeetle ]; then
-          echo "TigerBeetle data file already present — skipping format."
-        else
-          echo "Formatting TigerBeetle data file..."
-          /tigerbeetle format \
-            --cluster=${TB_CLUSTER_ID:-0} \
-            --replica=0 \
-            --replica-count=1 \
-            /data/0_0.tigerbeetle
-        fi
-    restart: "no"
-
-  tigerbeetle:
-    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.9
-    security_opt:
-      - seccomp=unconfined
-    volumes:
-      - tb-data:/data
-    command:
-      - start
-      - --addresses=0.0.0.0:3001
-      - --cache-grid=${TB_CACHE_GRID:-256MiB}
-      - /data/0_0.tigerbeetle
-    ports:
-      - "${TB_PORT:-3001}:3001"
-    depends_on:
-      tigerbeetle-format:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "/usr/bin/nc", "-z", "127.0.0.1", "3001"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
-      start_period: 5s
-    restart: unless-stopped
-
-# No fixed address here, unlike the full stack. That one pins TigerBeetle to
-# 10.77.0.10 because the API reaches it from another container and its client accepts
-# only IP:port, never a hostname. From the host there is a published port, so
-# TB_ADDRESSES=127.0.0.1:3001 and no custom network is needed.
-
 volumes:
   pg-data:
-  tb-data:

@@ -45,6 +45,9 @@ services:
       # Empty is a supported state: linking refuses with a clear error and
       # everything else keeps working — see config.IBKRConfig.
       IBKR_TOKEN_ENCRYPTION_KEY: ${IBKR_TOKEN_ENCRYPTION_KEY:-}
+    # The VPS is shared; the API needs a fraction of this even while parsing a
+    # year of statements.
+    mem_limit: 160m
     # No published ports. Traefik reaches this over the shared network.
     networks:
       - dokploy-network
