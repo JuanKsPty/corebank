@@ -41,6 +41,9 @@ type statementDocument struct {
 		OpenPositions *struct {
 			Items []openPositionXML `xml:"OpenPosition"`
 		} `xml:"OpenPositions"`
+		CashReport *struct {
+			Items []cashReportXML `xml:"CashReportCurrency"`
+		} `xml:"CashReport"`
 	} `xml:"FlexStatements>FlexStatement"`
 }
 
@@ -79,6 +82,17 @@ type tradeXML struct {
 	// cash transactions and positions do — but captured so that becomes a
 	// one-line fix instead of a schema change if it turns out they do.
 	LevelOfDetail string `xml:"levelOfDetail,attr"`
+}
+
+// cashReportXML is one currency's line of the Cash Report section: the cash
+// the account held at the start and end of the report's period.
+type cashReportXML struct {
+	Currency          string `xml:"currency,attr"`
+	LevelOfDetail     string `xml:"levelOfDetail,attr"`
+	StartingCash      string `xml:"startingCash,attr"`
+	EndingCash        string `xml:"endingCash,attr"`
+	EndingSettledCash string `xml:"endingSettledCash,attr"`
+	ToDate            string `xml:"toDate,attr"`
 }
 
 type openPositionXML struct {

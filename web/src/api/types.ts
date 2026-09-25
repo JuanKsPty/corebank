@@ -333,3 +333,32 @@ export type ChatEvent =
   // that stopped working — and a label that only refreshes with the page would
   // credit this reply to a model that did not write it.
   | { kind: 'done'; provider?: ChatProvider }
+
+/** What a dry run read from one statement, written nowhere. */
+export interface StatementReport {
+  institution: string
+  external_number: string
+  display_name: string
+  class: 'asset' | 'liability'
+  type: string
+  currency: string
+  /** Civil dates (YYYY-MM-DD). */
+  period_start: string | null
+  period_end: string | null
+  /** The bank's own balances; absent when the format prints none (a card). */
+  opening?: Amount
+  closing?: Amount
+  available?: Amount
+  held?: Amount
+  line_count: number
+  money_in: Amount
+  money_out: Amount
+  /** The first line whose printed balance disagrees with the computed one. */
+  chain_break?: { line_no: number; bank: Amount; computed: Amount }
+  warnings: string[]
+}
+
+export interface StatementFileReport {
+  source: 'bg_account' | 'bac_account' | 'bg_card'
+  statements: StatementReport[]
+}

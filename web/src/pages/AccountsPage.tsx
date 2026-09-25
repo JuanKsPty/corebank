@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { DryRunDialog } from '@/components/DryRunDialog'
 import { ImportStatementDialog } from '@/components/ImportStatementDialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -70,7 +71,8 @@ export function AccountsPage() {
           <p className="type-eyebrow">Cuentas</p>
           <h1 className="type-display mt-1.5 text-[1.75rem]">Tus cuentas</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <DryRunDialog />
           <ImportStatementDialog
             trigger={
               <Button variant="outline">

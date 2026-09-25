@@ -1,6 +1,9 @@
 package ibkr
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -32,6 +35,12 @@ type Statement struct {
 	HasCashTransactions bool
 	HasTrades           bool
 	HasPositions        bool
+	HasCashReport       bool
+
+	// CashBalances is the Cash Report: the account's cash per currency at the
+	// start and end of the period, as IBKR computes it. It is the figure a
+	// computed cash balance has to agree with.
+	CashBalances []CashBalance
 
 	CashTransactions []CashTransaction
 	Trades           []Trade
@@ -57,6 +66,25 @@ type CashTransaction struct {
 	Amount   money.Cents
 	Currency string
 	When     time.Time
+	// ReportDate is the day IBKR booked the movement.
+	ReportDate  time.Time
+	Description string
+	// Key identifies the movement across syncs: IBKR's transactionID when
+	// there is one, otherwise a hash of what the row says plus its position
+	// among identical rows. Never a counter over the whole window, which
+	// shifts as the window rolls forward.
+	Key string
+}
+
+// CashBalance is one currency's line of the Cash Report.
+type CashBalance struct {
+	Currency      string
+	Starting      money.Cents
+	Ending        money.Cents
+	EndingSettled money.Cents
+	// AsOf is the day Ending refers to; the report's ToDate when the line
+	// does not carry its own.
+	AsOf time.Time
 }
 
 // Trade is a single execution. Only its net cash effect reaches the ledger
@@ -122,6 +150,7 @@ func Parse(body []byte) (Statement, error) {
 		HasCashTransactions: raw.CashTransactions != nil,
 		HasTrades:           raw.Trades != nil,
 		HasPositions:        raw.OpenPositions != nil,
+		HasCashReport:       raw.CashReport != nil,
 	}
 
 	var (
@@ -149,6 +178,10 @@ func Parse(body []byte) (Statement, error) {
 		if err != nil {
 			return Statement{}, fmt.Errorf("ibkr: cash transaction %s: %w", ct.TransactionID, err)
 		}
+		reportDate, err := parseIBKRDate(ct.ReportDate)
+		if err != nil {
+			reportDate = when
+		}
 		stmt.CashTransactions = append(stmt.CashTransactions, CashTransaction{
 			ExternalRef: ct.TransactionID,
 			Type:        ct.Type,
@@ -156,10 +189,36 @@ func Parse(body []byte) (Statement, error) {
 			Amount:      amount,
 			Currency:    ct.Currency,
 			When:        when,
+			ReportDate:  reportDate,
+			Description: ct.Description,
 		})
 	}
+	assignCashKeys(stmt.CashTransactions)
 
-	for _, tr := range tradeItems {
+	if raw.CashReport != nil {
+		for _, c := range raw.CashReport.Items {
+			// BASE_SUMMARY restates the other lines converted to the base
+			// currency; counting it would double every balance.
+			if c.Currency == "" || c.Currency == "BASE_SUMMARY" {
+				continue
+			}
+			starting, err1 := parseApproxCents(zeroIfEmpty(c.StartingCash))
+			ending, err2 := parseApproxCents(zeroIfEmpty(c.EndingCash))
+			settled, err3 := parseApproxCents(zeroIfEmpty(c.EndingSettledCash))
+			if err := errors.Join(err1, err2, err3); err != nil {
+				return Statement{}, fmt.Errorf("ibkr: cash report %s: %w", c.Currency, err)
+			}
+			asOf := stmt.ToDate
+			if d, err := parseIBKRDate(c.ToDate); err == nil {
+				asOf = d
+			}
+			stmt.CashBalances = append(stmt.CashBalances, CashBalance{
+				Currency: c.Currency, Starting: starting, Ending: ending, EndingSettled: settled, AsOf: asOf,
+			})
+		}
+	}
+
+	for _, tr := range filterTrades(tradeItems) {
 		price, err := parseApproxCents(tr.TradePrice)
 		if err != nil {
 			return Statement{}, fmt.Errorf("ibkr: trade %s: price %q: %w", tr.TradeID, tr.TradePrice, err)
@@ -367,4 +426,44 @@ func parseOptionalDateTime(dateTime string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// assignCashKeys gives every cash row its stable Key.
+func assignCashKeys(rows []CashTransaction) {
+	seen := map[string]int{}
+	for i := range rows {
+		r := &rows[i]
+		if r.ExternalRef != "" {
+			r.Key = "id:" + r.ExternalRef
+			continue
+		}
+		tuple := fmt.Sprintf("%s|%s|%s|%d|%s|%s", r.ReportDate.Format("20060102"), r.Type, r.Symbol,
+			r.Amount, r.Currency, r.Description)
+		sum := sha256.Sum256([]byte(tuple))
+		r.Key = fmt.Sprintf("noref:%s:%d", hex.EncodeToString(sum[:12]), seen[tuple])
+		seen[tuple]++
+	}
+}
+
+// filterTrades keeps execution-level rows when the report has any. A query
+// that also asks for order or closed-lot detail restates each fill at those
+// levels, often without a tradeID, and counting them would repeat the trade.
+func filterTrades(items []tradeXML) []tradeXML {
+	hasExecution := false
+	for _, it := range items {
+		if it.LevelOfDetail == "EXECUTION" {
+			hasExecution = true
+			break
+		}
+	}
+	if !hasExecution {
+		return items
+	}
+	out := make([]tradeXML, 0, len(items))
+	for _, it := range items {
+		if it.LevelOfDetail == "EXECUTION" {
+			out = append(out, it)
+		}
+	}
+	return out
 }
