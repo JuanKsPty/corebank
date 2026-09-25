@@ -1,8 +1,8 @@
 // Package money represents monetary amounts as integer minor units (cents).
 //
 // No value in this system is ever held as a float. Balances and transfer
-// amounts are integers end to end — cents in Postgres (BIGINT), cents in
-// TigerBeetle (u128), cents over the wire — and formatting to a decimal string
+// amounts are integers end to end — cents in Postgres (BIGINT), cents over
+// the wire — and formatting to a decimal string
 // happens only at the edges. Parsing works on the decimal *text* rather than a
 // float64 so that a value like "32354.53", which has no exact binary
 // representation, cannot drift by a cent on the way in.
@@ -236,15 +236,6 @@ func (c Cents) String() string {
 		return "-" + s
 	}
 	return s
-}
-
-// Uint64 returns the amount for handing to TigerBeetle, which stores transfer
-// amounts as unsigned. Negative amounts are a programming error here.
-func (c Cents) Uint64() (uint64, error) {
-	if c < 0 {
-		return 0, ErrNotPositive
-	}
-	return uint64(c), nil
 }
 
 // Add and Sub exist so arithmetic on money stays inside this type rather than

@@ -49,8 +49,8 @@ type Statement struct {
 
 // CashTransaction is money entering or leaving the brokerage account itself —
 // a contribution, a withdrawal, a dividend, interest, a fee, or a trade's net
-// settlement. This is the half of a statement that becomes a real ledger
-// posting; see internal/investments.
+// settlement. This is the half of a statement that becomes movements; see
+// internal/investments.
 type CashTransaction struct {
 	// ExternalRef is IBKR's transactionID: the key SetCategory-style dedup
 	// relies on so re-running the same query twice does not double-post.
@@ -87,7 +87,7 @@ type CashBalance struct {
 	AsOf time.Time
 }
 
-// Trade is a single execution. Only its net cash effect reaches the ledger
+// Trade is a single execution. Only its net cash effect becomes a movement
 // (as a CashTransaction with the same transaction id, on statements that
 // report one); the trade itself — the position it changed — is stored in
 // Postgres only. See internal/investments' package doc for why.
@@ -109,7 +109,7 @@ type Trade struct {
 }
 
 // Position is a holding as of the moment the statement was generated — a
-// snapshot, not a live quote. Never posted to the ledger; see
+// snapshot, not a live quote. Never a movement; see
 // internal/investments.
 type Position struct {
 	Symbol         string

@@ -10,8 +10,7 @@
 #
 # The api job runs against a real PostgreSQL service container. Tests that need a
 # database get their own throwaway one from internal/storetest, and with CI=true a
-# missing database fails the run instead of skipping those tests. The one test
-# that wants TigerBeetle still skips itself when it cannot reach one.
+# missing database fails the run instead of skipping those tests.
 
 name: ci
 
@@ -51,9 +50,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # ubuntu-latest, and not a slimmer image: the TigerBeetle Go client links a
-      # precompiled native library that ships for glibc only, so this cannot be
-      # built on Alpine and cannot be built without cgo.
       - uses: actions/setup-go@v6
         with:
           go-version-file: api/go.mod
@@ -81,12 +77,14 @@ jobs:
         working-directory: api
         run: go mod tidy -diff
 
+      # Static, as the image builds it.
       - name: build
         working-directory: api
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
         run: go build ./...
 
+      # cgo only here: the race detector needs it, the binaries do not.
       # -race because the assistant's spend ceiling is guarded by atomics and
       # reached from concurrent requests. A ceiling that holds only when requests
       # arrive one at a time is not a ceiling, and its test spawns twenty

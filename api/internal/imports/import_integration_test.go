@@ -145,7 +145,7 @@ func TestABankAccountEndsWhereTheBankSays(t *testing.T) {
 		{day: 2, desc: "TRANSFERENCIA", credit: 20, balance: 107.5},
 	}))
 	a := e.account(t, r.Accounts[0].AccountID)
-	// The TigerBeetle mirror ended this file at 20.00.
+	// The old model ended this file at 20.00, inventing its opening.
 	if !a.Anchored || a.Balance != 10750 {
 		t.Fatalf("balance = %s (anchored %v), want 107.50", a.Balance, a.Anchored)
 	}

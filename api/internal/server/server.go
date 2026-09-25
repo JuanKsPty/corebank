@@ -160,7 +160,7 @@ func Run(ctx context.Context, addr string, h http.Handler, shutdownTimeout time.
 	}
 	// Request contexts intentionally do not inherit ctx: cancelling it means
 	// "start shutting down", and a movement already in flight must be allowed
-	// to finish rather than be aborted between the ledger and the database.
+	// to finish rather than be aborted halfway through its transaction.
 
 	errCh := make(chan error, 1)
 	go func() {

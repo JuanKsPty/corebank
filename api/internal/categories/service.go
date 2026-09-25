@@ -1,10 +1,8 @@
 // Package categories lets a customer group their own transactions for spend
 // tracking.
 //
-// A category is metadata, nothing more: attaching one to a transaction never
-// touches the ledger, in the same way an account's alias never does. That is
-// what makes this package safe to build without going anywhere near
-// TigerBeetle — there is no balance here to keep consistent with anything.
+// A category is metadata, nothing more: attaching one to a movement never
+// changes a balance, in the same way an account's alias never does.
 package categories
 
 import (
