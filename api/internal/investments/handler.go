@@ -98,13 +98,23 @@ func (h *Handler) sync(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, translate(err))
 		return
 	}
-	httpx.JSON(w, r, http.StatusOK, syncResultView{
-		CashMovementsPosted:  result.CashMovementsPosted,
-		CashMovementsSkipped: result.CashMovementsSkipped,
-		TradesRecorded:       result.TradesRecorded,
-		TradesSkipped:        result.TradesSkipped,
-		Positions:            result.Positions,
-	})
+	view := syncResultView{
+		CashMovementsPosted:       result.CashMovementsPosted,
+		CashMovementsSkipped:      result.CashMovementsSkipped,
+		CashMovementsFailedBefore: result.CashMovementsFailedBefore,
+		CashMovementsOtherAccount: result.CashMovementsOtherAccount,
+		TradesRecorded:            result.TradesRecorded,
+		TradesSkipped:             result.TradesSkipped,
+		Positions:                 result.Positions,
+		PeriodFrom:                civilDate(result.PeriodFrom),
+		PeriodTo:                  civilDate(result.PeriodTo),
+		MissingSections:           nonNil(result.MissingSections),
+		Warnings:                  nonNil(result.Warnings),
+	}
+	if !result.GeneratedAt.IsZero() {
+		view.GeneratedAt = &result.GeneratedAt
+	}
+	httpx.JSON(w, r, http.StatusOK, view)
 }
 
 func (h *Handler) portfolio(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +171,9 @@ func translate(err error) error {
 	case errors.Is(err, ErrNotLinked):
 		return httpx.NotFound("ibkr_not_linked",
 			"Esta cuenta todavía no tiene una Flex Query de IBKR configurada.").WithCause(err)
+	case errors.Is(err, ErrAccountMismatch):
+		return httpx.Unprocessable("ibkr_account_mismatch",
+			"La Flex Query devolvió el reporte de otra cuenta de IBKR. Revisa que el ID de la cuenta vinculada y la Flex Query correspondan a la misma cuenta.").WithCause(err)
 	case errors.Is(err, ErrEncryptionUnavailable):
 		return httpx.Internal(err)
 	default:
@@ -178,11 +191,20 @@ type linkStatusView struct {
 }
 
 type syncResultView struct {
-	CashMovementsPosted  int `json:"cash_movements_posted"`
-	CashMovementsSkipped int `json:"cash_movements_skipped"`
-	TradesRecorded       int `json:"trades_recorded"`
-	TradesSkipped        int `json:"trades_skipped"`
-	Positions            int `json:"positions"`
+	CashMovementsPosted       int `json:"cash_movements_posted"`
+	CashMovementsSkipped      int `json:"cash_movements_skipped"`
+	CashMovementsFailedBefore int `json:"cash_movements_failed_before"`
+	CashMovementsOtherAccount int `json:"cash_movements_other_account"`
+	TradesRecorded            int `json:"trades_recorded"`
+	TradesSkipped             int `json:"trades_skipped"`
+	Positions                 int `json:"positions"`
+	// PeriodFrom and PeriodTo are civil dates (YYYY-MM-DD), omitted when the
+	// report does not carry them.
+	PeriodFrom      string     `json:"period_from,omitempty"`
+	PeriodTo        string     `json:"period_to,omitempty"`
+	GeneratedAt     *time.Time `json:"generated_at,omitempty"`
+	MissingSections []string   `json:"missing_sections"`
+	Warnings        []string   `json:"warnings"`
 }
 
 type portfolioView struct {
@@ -252,4 +274,13 @@ func newTradeViews(list []Trade) []tradeView {
 		})
 	}
 	return out
+}
+
+// nonNil keeps an empty list serialising as [] rather than null, so the
+// client can iterate it without a guard.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

@@ -82,10 +82,12 @@ func run() error {
 	investmentsSvc := investments.NewService(db, accountsSvc, txSvc, cfg.IBKR.TokenEncryptionKey)
 
 	results, failures := investmentsSvc.SyncAll(ctx)
+	// Sync already logs each account's counts and period; what a scheduled
+	// run's log needs on top is anything that looked successful but was not.
 	for account, result := range results {
-		logger.Info("ibkr sync completed", "account_number", account,
-			"cash_posted", result.CashMovementsPosted, "trades_recorded", result.TradesRecorded,
-			"positions", result.Positions)
+		for _, warning := range result.Warnings {
+			logger.Warn("ibkr sync warning", "account_number", account, "warning", warning)
+		}
 	}
 	for account, syncErr := range failures {
 		logger.Error("ibkr sync failed", "account_number", account, "error", syncErr)

@@ -14,7 +14,25 @@ import (
 // corebank-native types. Nothing downstream of this package ever sees IBKR's
 // own attribute strings.
 type Statement struct {
-	AccountID        string
+	AccountID string
+
+	// FromDate and ToDate are the period the report covers, and GeneratedAt
+	// is when IBKR produced it. Each is the zero time when the report does
+	// not carry it, and a malformed value is treated the same way: these
+	// describe the report, they are not data to import, so an unexpected
+	// format must not fail a sync that is otherwise fine.
+	FromDate    time.Time
+	ToDate      time.Time
+	GeneratedAt time.Time
+
+	// HasCashTransactions, HasTrades and HasPositions report whether the
+	// query includes each section at all. A missing section is not the same
+	// as an empty one: replacing the positions snapshot with a section that
+	// was never requested would wipe every holding.
+	HasCashTransactions bool
+	HasTrades           bool
+	HasPositions        bool
+
 	CashTransactions []CashTransaction
 	Trades           []Trade
 	Positions        []Position
@@ -96,9 +114,32 @@ func Parse(body []byte) (Statement, error) {
 	}
 	raw := doc.Statements[0]
 
-	stmt := Statement{AccountID: raw.AccountID}
+	stmt := Statement{
+		AccountID:           raw.AccountID,
+		FromDate:            parseOptionalDate(raw.FromDate),
+		ToDate:              parseOptionalDate(raw.ToDate),
+		GeneratedAt:         parseOptionalDateTime(raw.WhenGenerated),
+		HasCashTransactions: raw.CashTransactions != nil,
+		HasTrades:           raw.Trades != nil,
+		HasPositions:        raw.OpenPositions != nil,
+	}
 
-	for _, ct := range filterCashTransactions(raw.CashTransactions.Items) {
+	var (
+		cashItems     []cashTransactionXML
+		tradeItems    []tradeXML
+		positionItems []openPositionXML
+	)
+	if raw.CashTransactions != nil {
+		cashItems = raw.CashTransactions.Items
+	}
+	if raw.Trades != nil {
+		tradeItems = raw.Trades.Items
+	}
+	if raw.OpenPositions != nil {
+		positionItems = raw.OpenPositions.Items
+	}
+
+	for _, ct := range filterCashTransactions(cashItems) {
 		amount, err := money.Parse(ct.Amount)
 		if err != nil {
 			return Statement{}, fmt.Errorf("ibkr: cash transaction %s: amount %q: %w",
@@ -118,7 +159,7 @@ func Parse(body []byte) (Statement, error) {
 		})
 	}
 
-	for _, tr := range raw.Trades.Items {
+	for _, tr := range tradeItems {
 		price, err := parseApproxCents(tr.TradePrice)
 		if err != nil {
 			return Statement{}, fmt.Errorf("ibkr: trade %s: price %q: %w", tr.TradeID, tr.TradePrice, err)
@@ -153,7 +194,7 @@ func Parse(body []byte) (Statement, error) {
 		})
 	}
 
-	for _, p := range filterOpenPositions(raw.OpenPositions.Items) {
+	for _, p := range filterOpenPositions(positionItems) {
 		markPrice, err := parseApproxCents(p.MarkPrice)
 		if err != nil {
 			return Statement{}, fmt.Errorf("ibkr: position %s: mark price %q: %w", p.Symbol, p.MarkPrice, err)
@@ -303,4 +344,27 @@ func parseIBKRDate(date string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("malformed date %q: %w", date, err)
 	}
 	return t, nil
+}
+
+// parseOptionalDate parses a statement-level date attribute, returning the
+// zero time when it is absent or not in the expected "YYYYMMdd" form.
+func parseOptionalDate(date string) time.Time {
+	t, err := parseIBKRDate(date)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// parseOptionalDateTime parses whenGenerated ("YYYYMMdd;HHmmss"), returning
+// the zero time when it is absent or malformed.
+func parseOptionalDateTime(dateTime string) time.Time {
+	if dateTime == "" {
+		return time.Time{}
+	}
+	t, err := parseIBKRDateTime(dateTime, "")
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

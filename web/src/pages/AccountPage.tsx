@@ -38,7 +38,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { accountLabel, accountTypeAside, accountTypeLabel, formatDate } from '@/lib/format'
+import {
+  accountLabel,
+  accountTypeAside,
+  accountTypeLabel,
+  formatCivilDate,
+  formatDate,
+} from '@/lib/format'
 import {
   useAccountTotal,
   useDeleteAccount,
@@ -716,11 +722,34 @@ function LinkedPortfolio({
         )}
 
         {sync.isSuccess && sync.data && (
-          <p className="mt-2 text-[0.8125rem] text-ink-soft">
-            Efectivo: {sync.data.cash_movements_posted} nuevo(s),{' '}
-            {sync.data.cash_movements_skipped} ya registrado(s) · Operaciones:{' '}
-            {sync.data.trades_recorded} nueva(s) · Posiciones: {sync.data.positions}
-          </p>
+          <div className="mt-2 space-y-2">
+            <p className="text-[0.8125rem] text-ink-soft">
+              {sync.data.period_from && sync.data.period_to
+                ? `Datos de IBKR del ${formatCivilDate(sync.data.period_from)} al ${formatCivilDate(sync.data.period_to)}. `
+                : 'El reporte de IBKR no indica su período. '}
+              Efectivo: {sync.data.cash_movements_posted} nuevo(s),{' '}
+              {sync.data.cash_movements_skipped} ya registrado(s)
+              {sync.data.cash_movements_failed_before > 0 &&
+                `, ${sync.data.cash_movements_failed_before} fallido(s) antes`}
+              {sync.data.cash_movements_other_account > 0 &&
+                `, ${sync.data.cash_movements_other_account} en otra cuenta`}{' '}
+              · Operaciones: {sync.data.trades_recorded} nueva(s) · Posiciones:{' '}
+              {sync.data.positions}
+            </p>
+            {sync.data.warnings.length > 0 && (
+              <Alert className="border-hold/40 bg-hold/8 text-hold-text">
+                <CircleAlertIcon className="text-hold" />
+                <AlertTitle>La sincronización terminó, pero revisa esto</AlertTitle>
+                <AlertDescription>
+                  <ul className="list-disc space-y-1 pl-4">
+                    {sync.data.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
         )}
 
         {sync.isError && (

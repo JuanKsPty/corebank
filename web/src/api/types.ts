@@ -201,10 +201,22 @@ export interface InvestmentLinkStatus {
 /** What one sync did — a healthy no-op run looks the same shape as one that moved money. */
 export interface InvestmentSyncResult {
   cash_movements_posted: number
+  /** Already recorded on this account — the only harmless kind of skip. */
   cash_movements_skipped: number
+  /** Rejected on an earlier sync and never retried, so cash leaves them out. */
+  cash_movements_failed_before: number
+  /** Already recorded on another corebank account linked to the same IBKR account. */
+  cash_movements_other_account: number
   trades_recorded: number
   trades_skipped: number
   positions: number
+  /** The period IBKR's report covers, as civil dates (YYYY-MM-DD). */
+  period_from?: string
+  period_to?: string
+  generated_at?: string
+  missing_sections: string[]
+  /** Spanish, ready to show. */
+  warnings: string[]
 }
 
 /** One holding, as of the account's last sync — not a live quote. */
