@@ -1,7 +1,6 @@
 package transactions
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -19,14 +18,14 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/store"
 )
 
-// idempotencyHeader lets a client make a retry safe. A transfer sent twice
-// because a response was lost is the failure mode worth designing against, and
-// the client is the only party that can tell "the same transfer again" from "the
-// same transfer twice on purpose".
+// idempotencyHeader lets a client make a retry safe. A balance correction sent
+// twice because a response was lost is the failure mode worth designing against,
+// and the client is the only party that can tell "the same correction again"
+// from "the same correction twice on purpose".
 const idempotencyHeader = "Idempotency-Key"
 
-// Handler serves the money-moving and history endpoints. All of them require
-// authentication.
+// Handler serves the history, export, category and balance-correction
+// endpoints. All of them require authentication.
 type Handler struct {
 	svc *Service
 }
@@ -41,18 +40,7 @@ func (h *Handler) Routes() http.Handler {
 	// differ in more than encoding: this one is not paginated, because a statement
 	// is a document and not a page of one.
 	r.Get("/export.csv", h.exportCSV)
-	r.Post("/deposit", h.deposit)
-	r.Post("/withdraw", h.withdraw)
-	r.Post("/transfer", h.transfer)
 	r.Post("/reconcile", h.reconcile)
-
-	// Resolving a movement the assistant proposed. Mounted here rather than under
-	// /api/chat because it is a banking operation, not a conversation one: it
-	// works identically whether the proposal came from the chat or anywhere else.
-	r.Post("/{hold_id}/confirm", h.confirm)
-	r.Post("/{hold_id}/cancel", h.cancel)
-	// A separate id space from hold_id above: this one addresses the movement
-	// itself, and works on a completed movement just as well as a pending one.
 	r.Patch("/{id}/category", h.setCategory)
 	return r
 }
@@ -82,68 +70,10 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		TotalAvailable: summary.TotalAvailable.Amount(),
 		Recent:         newViews(summary.Recent),
 		Flow:           newFlow(summary.Flow),
-		Pending:        newViews(summary.Pending),
 	})
 }
 
 // --- request shapes ---------------------------------------------------------
-
-// movementRequest is the body of a deposit, withdrawal or transfer.
-//
-// Amount is text rather than a number so no float is involved anywhere between
-// the client's keyboard and the ledger.
-type movementRequest struct {
-	Account             string      `json:"account_number"`
-	ToAccount           string      `json:"to_account_number"`
-	Amount              money.Input `json:"amount"`
-	Currency            string      `json:"currency"`
-	Description         string      `json:"description"`
-	RequireConfirmation bool        `json:"require_confirmation"`
-}
-
-// toRequest validates the body and builds a service request.
-func (req movementRequest) toRequest(needsCounterparty bool) (Request, map[string]string) {
-	problems := map[string]string{}
-
-	amount, err := req.Amount.Cents()
-	if err != nil {
-		problems["amount"] = amountProblem(err)
-	}
-	if err := money.CheckCurrency(req.Currency); err != nil {
-		problems["currency"] = "Solo se admiten montos en dólares (USD)."
-	}
-	if needsCounterparty && req.ToAccount == "" {
-		problems["to_account_number"] = "La cuenta de destino es obligatoria."
-	}
-	if len(req.Description) > 200 {
-		problems["description"] = "La descripción admite como máximo 200 caracteres."
-	}
-
-	// Account numbers are checked for shape here so a malformed one is reported
-	// as a field error rather than as a missing account.
-	for field, number := range map[string]string{
-		"account_number":    req.Account,
-		"to_account_number": req.ToAccount,
-	} {
-		if number == "" {
-			continue
-		}
-		if _, err := ledger.AccountIDFromNumber(number); err != nil {
-			problems[field] = "El número de cuenta no es válido."
-		}
-	}
-
-	if len(problems) > 0 {
-		return Request{}, problems
-	}
-	return Request{
-		Account:      req.Account,
-		Counterparty: req.ToAccount,
-		Amount:       amount,
-		Description:  req.Description,
-		Origin:       store.OriginAPI,
-	}, nil
-}
 
 func amountProblem(err error) string {
 	switch {
@@ -161,24 +91,6 @@ func amountProblem(err error) string {
 }
 
 // --- handlers ---------------------------------------------------------------
-
-func (h *Handler) deposit(w http.ResponseWriter, r *http.Request) {
-	h.move(w, r, false, func(userID uuid.UUID, req Request) (store.Transaction, error) {
-		return h.svc.Deposit(r.Context(), userID, req)
-	})
-}
-
-func (h *Handler) withdraw(w http.ResponseWriter, r *http.Request) {
-	h.move(w, r, false, func(userID uuid.UUID, req Request) (store.Transaction, error) {
-		return h.svc.Withdraw(r.Context(), userID, req)
-	})
-}
-
-func (h *Handler) transfer(w http.ResponseWriter, r *http.Request) {
-	h.move(w, r, true, func(userID uuid.UUID, req Request) (store.Transaction, error) {
-		return h.svc.Transfer(r.Context(), userID, req)
-	})
-}
 
 // reconcileRequest is the body of a balance correction. TargetBalance is
 // parsed with money.Parse rather than money.Input.Cents: unlike a movement
@@ -234,88 +146,6 @@ func (h *Handler) reconcile(w http.ResponseWriter, r *http.Request) {
 
 	view := newView(tx)
 	httpx.JSON(w, r, http.StatusCreated, reconcileResponse{Adjusted: true, Transaction: &view})
-}
-
-// move is the shared body of the three money-moving endpoints: decode, validate,
-// perform, respond. Sharing it means the three cannot drift in how they validate
-// or how they report failure.
-func (h *Handler) move(w http.ResponseWriter, r *http.Request, needsCounterparty bool,
-	perform func(uuid.UUID, Request) (store.Transaction, error)) {
-
-	var body movementRequest
-	if err := httpx.Decode(w, r, &body); err != nil {
-		httpx.Fail(w, r, err)
-		return
-	}
-
-	req, problems := body.toRequest(needsCounterparty)
-	if problems != nil {
-		httpx.Fail(w, r, httpx.Invalid(problems))
-		return
-	}
-
-	key := r.Header.Get(idempotencyHeader)
-	if len(key) > 128 {
-		httpx.Fail(w, r, httpx.BadRequest("idempotency_key_too_long",
-			"El encabezado Idempotency-Key admite como máximo 128 caracteres."))
-		return
-	}
-	req.IdempotencyKey = key
-
-	userID := identity.MustFromContext(r.Context())
-
-	// A movement the client asked to have confirmed reserves the funds instead of
-	// completing. The REST API exposes this so the confirmation flow is not
-	// exclusive to the assistant.
-	if body.RequireConfirmation {
-		var (
-			tx  store.Transaction
-			err error
-		)
-		if needsCounterparty {
-			tx, err = h.svc.PrepareTransfer(r.Context(), userID, req)
-		} else {
-			tx, err = h.svc.PrepareWithdrawal(r.Context(), userID, req)
-		}
-		if err != nil {
-			httpx.Fail(w, r, translate(err))
-			return
-		}
-		httpx.JSON(w, r, http.StatusAccepted, newView(tx))
-		return
-	}
-
-	tx, err := perform(userID, req)
-	if err != nil {
-		httpx.Fail(w, r, translate(err))
-		return
-	}
-	httpx.JSON(w, r, http.StatusCreated, newView(tx))
-}
-
-func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
-	h.resolve(w, r, h.svc.Confirm)
-}
-
-func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
-	h.resolve(w, r, h.svc.Cancel)
-}
-
-func (h *Handler) resolve(w http.ResponseWriter, r *http.Request,
-	action func(context.Context, uuid.UUID, uuid.UUID) (store.Transaction, error)) {
-
-	holdID, err := uuid.Parse(chi.URLParam(r, "hold_id"))
-	if err != nil {
-		httpx.Fail(w, r, httpx.NotFound("confirmation_not_found", "Esta confirmación ya no existe."))
-		return
-	}
-
-	tx, err := action(r.Context(), identity.MustFromContext(r.Context()), holdID)
-	if err != nil {
-		httpx.Fail(w, r, translate(err))
-		return
-	}
-	httpx.JSON(w, r, http.StatusOK, newView(tx))
 }
 
 type categoryRequest struct {

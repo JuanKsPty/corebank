@@ -1,8 +1,5 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { Amount } from '@/api/types'
-import { BalanceComposition, Figure } from '@/components/primitives'
 import { Button } from '@/components/ui/button'
 import { Wordmark } from '@/components/Wordmark'
 import { gutter } from '@/lib/layout'
@@ -30,7 +27,7 @@ export function LandingPage() {
       </header>
 
       <main className={cn('flex flex-1 flex-col justify-center py-10 md:py-14', gutter)}>
-        <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-16">
+        <div>
           <div>
             <h1 className="type-display max-w-[19ch] text-[clamp(2rem,5.2vw,3.5rem)]">
               Tus cuentas, tarjetas e inversiones{' '}
@@ -54,8 +51,6 @@ export function LandingPage() {
               </Button>
             </div>
           </div>
-
-          <HoldDemonstration />
         </div>
       </main>
 
@@ -65,74 +60,5 @@ export function LandingPage() {
         </div>
       </footer>
     </div>
-  )
-}
-
-/** Builds the wire shape the balance components expect, from cents. */
-function amount(cents: number): Amount {
-  return { cents, formatted: (cents / 100).toFixed(2), currency: 'USD' }
-}
-
-const POSTED = amount(3_287_508)
-const RESERVED = amount(25_000)
-
-/**
- * The signature element, driven by a button.
- *
- * The same `BalanceComposition` the dashboard uses, with the same held-segment
- * animation, so what a visitor sees here is not a mock-up of the product but the
- * product's one distinctive component running on sample figures.
- */
-function HoldDemonstration() {
-  const [reserved, setReserved] = useState(false)
-
-  const held = reserved ? RESERVED : amount(0)
-  const available = amount(POSTED.cents - held.cents)
-
-  return (
-    <section
-      aria-labelledby="demo"
-      className="card overflow-hidden bg-paper-raised p-5 sm:p-7 lg:sticky lg:top-8"
-    >
-      <p id="demo" className="type-eyebrow">
-        Disponible
-      </p>
-      <p className="mt-1.5">
-        <Figure amount={available} size="display" className="type-display" />
-      </p>
-
-      <div className="mt-6">
-        <BalanceComposition posted={POSTED} held={held} available={available} />
-      </div>
-
-      <div className="mt-7 border-t border-rule pt-5">
-        <p className="text-[0.875rem] leading-relaxed text-ink-soft">
-          {/* What the number does, not what the architecture is. The version before
-              this one ended by comparing the product to a bank that stores its balance
-              in a column — arguing with an imaginary competitor instead of saying what
-              the visitor is looking at. */}
-          {reserved ? (
-            <>
-              Hay <strong className="font-semibold text-hold">$250.00</strong> retenidos.
-              Salieron de lo que puedes gastar y todavía no han llegado a ninguna parte:
-              esperan a que confirmes, y hasta entonces nadie puede gastarlos.
-            </>
-          ) : (
-            <>
-              Pídele al asistente que mueva dinero y verás pasar esto: los fondos se
-              reservan primero y solo se mueven cuando confirmas. Pruébalo.
-            </>
-          )}
-        </p>
-
-        <Button
-          onClick={() => setReserved((value) => !value)}
-          variant={reserved ? 'outline' : 'default'}
-          className={cn('mt-4', !reserved && 'bg-ink text-paper hover:bg-ink/90')}
-        >
-          {reserved ? 'Liberar la reserva' : 'Reservar $250'}
-        </Button>
-      </div>
-    </section>
   )
 }

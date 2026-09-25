@@ -2,7 +2,6 @@ import { ArrowUpIcon, PanelRightCloseIcon, SparklesIcon } from 'lucide-react'
 
 import type { ChatEngine, ChatProvider } from '@/api/types'
 
-import { ConfirmationCard } from '@/components/ConfirmationCard'
 import { Badge } from '@/components/ui/badge'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
@@ -41,13 +40,7 @@ import { TOOL_LABELS, useAssistant, type Turn } from './AssistantProvider'
  * this component can be mounted in the desktop column, in the phone's sheet, or in
  * both, without any of them owning a second conversation.
  *
- * A turn can carry three kinds of thing: what the assistant said, which tools it ran,
- * and — when it proposed a movement — the confirmation card. The card is placed in the
- * transcript rather than in a dialog on purpose. It belongs to the exchange that
- * produced it, and a dialog would make it feel like something the assistant did *to*
- * the customer instead of something it is asking them about. It is also why the sheet
- * on a phone stops short of the top of the screen: the balance stays visible behind
- * it, so the held funds can be watched leaving the available total.
+ * A turn carries what the assistant said and which tools it ran.
  */
 export function AssistantPanel({
   className,
@@ -165,8 +158,8 @@ export function AssistantPanel({
             not in a caption. */}
         {provider?.engine === 'budget_exhausted' && turns.length > 0 && (
           <p className="mb-2 text-[0.75rem] leading-snug text-hold-text">
-            Se agotó el presupuesto de IA de esta demo. Sigo funcionando con reglas: puedo
-            consultar saldos y movimientos, y preparar movimientos para que los confirmes.
+            Se agotó el presupuesto de IA, así que el asistente no puede responder por
+            ahora. El resto de la app funciona con normalidad.
           </p>
         )}
         <label htmlFor="chat-input" className="sr-only">
@@ -244,8 +237,6 @@ function TurnView({ turn }: { turn: Turn }) {
             {renderAssistantText(turn.text)}
           </div>
         )}
-
-        {turn.card && <ConfirmationCard card={turn.card} />}
 
         {turn.error && (
           <p className="text-[0.8125rem] text-danger-text" role="alert">
@@ -363,14 +354,17 @@ function describeEngine(provider: ChatProvider): { tone: string; text: string } 
     case 'budget_exhausted':
       // The honest version. "Unavailable, try again in a moment" would be a lie:
       // waiting does not refill a budget.
-      return { tone: 'bg-hold', text: 'Presupuesto de IA agotado · respondo con reglas' }
+      return {
+        tone: 'bg-hold',
+        text: 'Presupuesto de IA agotado · asistente no disponible',
+      }
 
     case 'degraded':
-      return { tone: 'bg-hold', text: 'IA no disponible ahora · respondo con reglas' }
+      return { tone: 'bg-hold', text: 'IA no disponible ahora' }
 
     case 'unconfigured':
     default:
-      return { tone: 'bg-hold', text: 'Sin IA configurada · respondo con reglas' }
+      return { tone: 'bg-hold', text: 'Sin IA configurada · asistente no disponible' }
   }
 }
 
@@ -393,8 +387,7 @@ function Opening({
   const suggestions = [
     '¿Cuánto dinero tengo?',
     'Muéstrame mis últimos 5 movimientos',
-    'Ingresa $200 en mi cuenta',
-    'Retira $50',
+    '¿Cuánto tengo en cada cuenta?',
   ]
 
   return (
@@ -407,13 +400,8 @@ function Opening({
           Pídeme lo que necesites
         </EmptyTitle>
         <EmptyDescription className="text-[0.8125rem]">
-          Consulto saldos y movimientos, registro ingresos, y preparo retiros y
-          transferencias para que los confirmes.
-          {/* Why the phrasing has to be concrete, when it does. Somebody whose
-              sentence was not understood deserves to know it was the engine and not
-              their wording. */}
-          {engine !== 'ai' &&
-            ' Ahora respondo con reglas, así que entiendo frases concretas como estas.'}
+          Consulto tus saldos y movimientos.
+          {engine !== 'ai' && ' Ahora mismo no estoy disponible.'}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>

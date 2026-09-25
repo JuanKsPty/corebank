@@ -62,7 +62,6 @@ func TestEveryToolIsPublishedWithASchemaAndDescription(t *testing.T) {
 
 	for _, name := range []string{
 		ToolListAccounts, ToolGetBalance, ToolListTransactions,
-		ToolDeposit, ToolPrepareWithdrawal, ToolPrepareTransfer,
 	} {
 		spec, ok := byName[name]
 		if !ok {
@@ -78,26 +77,23 @@ func TestEveryToolIsPublishedWithASchemaAndDescription(t *testing.T) {
 			t.Errorf("tool %s has no input schema", name)
 		}
 	}
-	if len(specs) != 6 {
-		t.Errorf("the server publishes %d tools, want 6 — a new one needs its confirmation "+
-			"requirement decided here", len(specs))
+	if len(specs) != 3 {
+		t.Errorf("the server publishes %d tools, want 3 — a new one needs a test here", len(specs))
 	}
 }
 
-func TestOnlyMoneyLeavingToolsRequireConfirmation(t *testing.T) {
-	// A deposit can only increase the customer's balance, so asking them to
-	// confirm it would be friction with nothing behind it. Everything that can
-	// take money out must be a proposal.
-	for tool, want := range map[string]bool{
-		ToolListAccounts:      false,
-		ToolGetBalance:        false,
-		ToolListTransactions:  false,
-		ToolDeposit:           false,
-		ToolPrepareWithdrawal: true,
-		ToolPrepareTransfer:   true,
-	} {
-		if got := RequiresConfirmation(tool); got != want {
-			t.Errorf("RequiresConfirmation(%s) = %v, want %v", tool, got, want)
+func TestNoToolMovesMoney(t *testing.T) {
+	// Every movement comes from a statement or a brokerage sync. A tool whose
+	// name says it moves money means that rule was broken, whatever the tool does.
+	specs, err := openOffline(t).Tools(context.Background())
+	if err != nil {
+		t.Fatalf("Tools: %v", err)
+	}
+	for _, spec := range specs {
+		for _, verb := range []string{"deposit", "withdraw", "transfer", "pay", "move"} {
+			if strings.Contains(strings.ToLower(spec.Name), verb) {
+				t.Errorf("tool %s looks like it moves money (%q)", spec.Name, verb)
+			}
 		}
 	}
 }
@@ -107,51 +103,6 @@ func TestSessionRefusesAnUnauthenticatedUser(t *testing.T) {
 	// would operate on it without complaint.
 	if _, err := Open(context.Background(), Deps{}, uuid.Nil); err == nil {
 		t.Error("a session was opened with no user")
-	}
-}
-
-func TestConfirmationIsReadFromTheStructuredResult(t *testing.T) {
-	// The confirmation card must come from the tool's own output, never from the
-	// model's prose: a hallucinated id would otherwise render a working button,
-	// and a forgotten mention would leave funds held with nothing to click.
-	holdID := uuid.New()
-	structured, err := json.Marshal(confirmationResult{
-		Status:             "awaiting_confirmation",
-		ConfirmationID:     holdID.String(),
-		Kind:               "transfer",
-		Amount:             "100.00",
-		FromAccount:        "4001-0000-0000-0001",
-		ToAccount:          "4001-0000-0000-0002",
-		BalanceIfConfirmed: "23.45",
-	})
-	if err != nil {
-		t.Fatalf("marshalling: %v", err)
-	}
-
-	got, ok := ConfirmationFrom(ToolPrepareTransfer, Result{Structured: structured})
-	if !ok {
-		t.Fatal("a valid confirmation result was not recognised")
-	}
-	if got.ID != holdID || got.Amount != "100.00" || got.BalanceIfConfirmed != "23.45" {
-		t.Errorf("extracted %+v", got)
-	}
-
-	for name, arg := range map[string]struct {
-		tool   string
-		result Result
-	}{
-		"a read-only tool": {ToolListAccounts, Result{Structured: structured}},
-		"a failed call":    {ToolPrepareTransfer, Result{Structured: structured, IsError: true}},
-		"no structured output": {ToolPrepareTransfer,
-			Result{Text: "he preparado la transferencia, id abc-123"}},
-		"a malformed id": {ToolPrepareTransfer,
-			Result{Structured: json.RawMessage(`{"confirmation_id":"not-a-uuid"}`)}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, ok := ConfirmationFrom(arg.tool, arg.result); ok {
-				t.Error("a confirmation card would have been rendered")
-			}
-		})
 	}
 }
 

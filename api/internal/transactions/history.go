@@ -57,41 +57,12 @@ func (s *Service) Flow(ctx context.Context, userID uuid.UUID, days int) (store.F
 	return s.db.Q().DailyFlowWindow(ctx, scope, days, s.now().UTC())
 }
 
-// PendingConfirmations lists the customer's movements still holding funds.
-//
-// The interface needs this after a reload: a confirmation card the customer never
-// answered has to reappear, or the money looks missing from the available balance
-// with nothing on screen explaining why.
-func (s *Service) PendingConfirmations(ctx context.Context, userID uuid.UUID) ([]store.Transaction, error) {
-	scope, err := s.scope(ctx, userID, "")
-	if err != nil {
-		return nil, err
-	}
-	if len(scope) == 0 {
-		return nil, nil
-	}
-
-	page, err := s.db.Q().History(ctx, store.HistoryFilter{Accounts: scope, Limit: 200})
-	if err != nil {
-		return nil, err
-	}
-
-	var pending []store.Transaction
-	for _, t := range page.Transactions {
-		if t.AwaitingConfirmation() && t.HoldExpiresAt.After(s.now()) {
-			pending = append(pending, t)
-		}
-	}
-	return pending, nil
-}
-
 // Summary is the dashboard's headline figures.
 type Summary struct {
 	Accounts       []accounts.Account
 	TotalAvailable money.Cents
 	Recent         []store.Transaction
 	Flow           store.Flow
-	Pending        []store.Transaction
 }
 
 // Dashboard assembles everything the landing page shows in one call, so the page
@@ -114,9 +85,6 @@ func (s *Service) Dashboard(ctx context.Context, userID uuid.UUID, recent, flowD
 	summary.Recent = page.Transactions
 
 	if summary.Flow, err = s.Flow(ctx, userID, flowDays); err != nil {
-		return Summary{}, err
-	}
-	if summary.Pending, err = s.PendingConfirmations(ctx, userID); err != nil {
 		return Summary{}, err
 	}
 	return summary, nil

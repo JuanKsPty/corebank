@@ -10,7 +10,6 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { ImportedAccountPage } from '@/pages/ImportedAccountPage'
 import { LandingPage } from '@/pages/LandingPage'
-import { MovePage } from '@/pages/MovePage'
 import { SecurityPage } from '@/pages/SecurityPage'
 import { SignInPage } from '@/pages/SignInPage'
 import { SignUpPage } from '@/pages/SignUpPage'
@@ -38,7 +37,6 @@ export function App() {
             returns you to it. Anything else was never a page. */}
         <Route path="/panel" element={<RedirectToSignIn />} />
         <Route path="/cuentas" element={<RedirectToSignIn />} />
-        <Route path="/mover" element={<RedirectToSignIn />} />
         <Route path="/historial" element={<RedirectToSignIn />} />
         <Route path="/cuentas/:number" element={<RedirectToSignIn />} />
         <Route path="/seguridad" element={<RedirectToSignIn />} />
@@ -56,7 +54,6 @@ export function App() {
             depending on a cookie could not be linked to. */}
         <Route path="/panel" element={<DashboardPage />} />
         <Route path="/cuentas" element={<AccountsPage />} />
-        <Route path="/mover" element={<MovePage />} />
         <Route path="/historial" element={<HistoryPage />} />
         <Route path="/cuentas/:number" element={<AccountPage />} />
         <Route path="/seguridad" element={<SecurityPage />} />

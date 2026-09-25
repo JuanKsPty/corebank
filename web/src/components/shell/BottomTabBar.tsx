@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
  * point of the feature.
  */
 export function BottomTabBar() {
-  const { setOpen, pendingCount } = useAssistant()
+  const { setOpen } = useAssistant()
 
   return (
     <nav
@@ -56,14 +56,6 @@ export function BottomTabBar() {
                 )}
               >
                 <item.icon className="size-6" aria-hidden="true" />
-                {pendingCount > 0 && (
-                  <span
-                    className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-hold text-[0.625rem] font-semibold text-ink ring-2 ring-paper"
-                    aria-label={`${pendingCount} operación pendiente de confirmar`}
-                  >
-                    {pendingCount}
-                  </span>
-                )}
               </button>
               {/* The label sits in the bar itself, aligned with its neighbours, while
                   the button floats above it. */}

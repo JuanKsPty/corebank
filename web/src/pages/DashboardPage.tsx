@@ -233,10 +233,10 @@ export function DashboardPage() {
             ownedAccounts={ownedAccounts}
             loading={dashboard.isLoading}
             emptyTitle="Aún no tienes movimientos"
-            emptyBody="Haz un ingreso o una transferencia y aparecerá aquí al instante."
+            emptyBody="Importa un estado de cuenta de tu banco y tus movimientos aparecerán aquí."
             emptyAction={
               <Button asChild variant="outline">
-                <Link to="/mover">Mover dinero</Link>
+                <Link to="/cuentas">Importar estado de cuenta</Link>
               </Button>
             }
           />

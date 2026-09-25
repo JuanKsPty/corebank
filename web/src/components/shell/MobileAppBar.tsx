@@ -125,7 +125,6 @@ export function MobileAppBar() {
  */
 function detailTitle(pathname: string): string | null {
   if (pathname === '/panel') return null
-  if (pathname.startsWith('/mover')) return 'Mover dinero'
   if (pathname.startsWith('/historial')) return 'Historial'
   if (pathname.startsWith('/cuentas/')) return 'Detalle de cuenta'
   if (pathname === '/cuentas') return 'Tus cuentas'
