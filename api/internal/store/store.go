@@ -107,3 +107,11 @@ func (db *DB) Ping(ctx context.Context) error {
 
 // Close releases every pooled connection.
 func (db *DB) Close() { db.pool.Close() }
+
+// Exec runs one statement outside any transaction. It exists for tests that
+// assert what the schema itself refuses; application code goes through
+// Queries.
+func (db *DB) Exec(ctx context.Context, sql string, args ...any) error {
+	_, err := db.pool.Exec(ctx, sql, args...)
+	return err
+}

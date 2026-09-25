@@ -25,7 +25,6 @@ type Config struct {
 	Env  string // "development" or "production"; affects log format and error detail
 	HTTP HTTPConfig
 	DB   DBConfig
-	TB   TigerBeetleConfig
 	Auth AuthConfig
 	AI   AIConfig
 	IBKR IBKRConfig
@@ -46,12 +45,6 @@ type HTTPConfig struct {
 type DBConfig struct {
 	URL         string
 	MaxConns    int32
-	ConnectWait time.Duration
-}
-
-type TigerBeetleConfig struct {
-	ClusterID   uint64
-	Addresses   []string
 	ConnectWait time.Duration
 }
 
@@ -79,10 +72,6 @@ type AuthConfig struct {
 type AIConfig struct {
 	APIKey string
 	Model  string
-	// HoldTTL is how long a movement proposed by the assistant keeps its funds
-	// reserved while waiting for the user to confirm. When it elapses the
-	// ledger releases the reservation on its own — no cleanup job involved.
-	HoldTTL time.Duration
 	// MaxToolTurns bounds the agentic loop so a confused model cannot spin.
 	MaxToolTurns int
 
@@ -152,11 +141,6 @@ func Load() (Config, error) {
 			MaxConns:    int32(number("DB_MAX_CONNS", 10, fail)),
 			ConnectWait: duration("DB_CONNECT_WAIT", 30*time.Second, fail),
 		},
-		TB: TigerBeetleConfig{
-			ClusterID:   uint64(number("TB_CLUSTER_ID", 0, fail)),
-			Addresses:   list("TB_ADDRESSES", "127.0.0.1:3001"),
-			ConnectWait: duration("TB_CONNECT_WAIT", 30*time.Second, fail),
-		},
 		Auth: AuthConfig{
 			AccessTTL:         duration("ACCESS_TOKEN_TTL", 15*time.Minute, fail),
 			RefreshTTL:        duration("REFRESH_TOKEN_TTL", 720*time.Hour, fail),
@@ -169,9 +153,8 @@ func Load() (Config, error) {
 			DeviceTTL: duration("DEVICE_TOKEN_TTL", 4320*time.Hour, fail),
 		},
 		AI: AIConfig{
-			APIKey:  str("ANTHROPIC_API_KEY", ""),
-			Model:   str("ANTHROPIC_MODEL", "claude-sonnet-5"),
-			HoldTTL: duration("CONFIRMATION_TTL", 2*time.Minute, fail),
+			APIKey: str("ANTHROPIC_API_KEY", ""),
+			Model:  str("ANTHROPIC_MODEL", "claude-sonnet-5"),
 			// Four, not eight. A banking question needs one or two rounds of
 			// tools; the rest of the allowance only ever bought a confused model
 			// more chances to keep asking, and each round re-sends the whole
@@ -220,9 +203,6 @@ func Load() (Config, error) {
 	// minutes instead of milliseconds.
 	if cfg.Auth.BcryptCost < 10 || cfg.Auth.BcryptCost > 15 {
 		fail("BCRYPT_COST must be between 10 and 15, got %d", cfg.Auth.BcryptCost)
-	}
-	if len(cfg.TB.Addresses) == 0 {
-		fail("TB_ADDRESSES must not be empty")
 	}
 	if cfg.AI.MaxToolTurns < 1 {
 		fail("AI_MAX_TOOL_TURNS must be at least 1, got %d", cfg.AI.MaxToolTurns)

@@ -12,7 +12,6 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
 	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/config"
-	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/store"
 )
@@ -85,19 +84,15 @@ func (s *Service) Tokens() *TokenIssuer { return s.tokens }
 
 // RegisterInput is a validated registration request.
 type RegisterInput struct {
-	Email       string
-	Password    string
-	FullName    string
-	AccountKind ledger.AccountKind
+	Email    string
+	Password string
+	FullName string
 }
 
-// Register creates a user together with their first bank account.
+// Register creates a user with their default categories.
 //
-// Both happen in one PostgreSQL transaction because a customer who exists but
-// has no account cannot do anything, and would have no way to get one — the
-// registration endpoint is the only thing that opens the first account. The
-// ledger account is created inside the transaction too; see accounts.Open for
-// why that ordering is the safe one.
+// No account is opened: accounts come from the first statement the user
+// imports or the IBKR account they link, keyed the way their bank keys them.
 func (s *Service) Register(ctx context.Context, in RegisterInput) (Session, error) {
 	email := NormaliseEmail(in.Email)
 
@@ -123,15 +118,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Session, erro
 			return err
 		}
 
-		// No alias on the account somebody registers with: they have not been asked
-		// for one and inventing a name on their behalf would be putting words in
-		// their mouth. The interface labels it by its type until they say otherwise.
-		if _, err := s.accounts.Open(ctx, q, userID, in.AccountKind, ""); err != nil {
-			return err
-		}
-		// Seeded in the same transaction for the same reason the first account is:
-		// a customer who exists but cannot categorise a single transaction is not a
-		// state worth allowing even momentarily.
+		// Seeded in the same transaction: a user who exists but cannot
+		// categorise a single movement is not a state worth allowing even
+		// momentarily.
 		if err := s.categories.SeedDefaults(ctx, q, userID); err != nil {
 			return err
 		}

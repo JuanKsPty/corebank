@@ -5,14 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { ApiError } from '@/api/client'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-} from '@/components/ui/field'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useSession } from '@/lib/session'
@@ -25,13 +18,7 @@ import {
 } from '@/lib/validate'
 import { AuthLayout, AuthLink } from './AuthLayout'
 
-type FieldName = 'full_name' | 'email' | 'password' | 'account_type'
-
-const ACCOUNT_TYPES = [
-  { value: 'savings', label: 'Ahorros', detail: 'Para guardar' },
-  { value: 'checking', label: 'Corriente', detail: 'Para el día a día' },
-  { value: 'investment', label: 'Inversión', detail: 'Para hacer crecer' },
-] as const
+type FieldName = 'full_name' | 'email' | 'password'
 
 export function SignUpPage() {
   const { signUp } = useSession()
@@ -40,7 +27,6 @@ export function SignUpPage() {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [accountType, setAccountType] = useState<string>('savings')
   const [errors, setErrors] = useState<Errors<FieldName>>({})
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -65,7 +51,6 @@ export function SignUpPage() {
         full_name: fullName.trim(),
         email: email.trim(),
         password,
-        account_type: accountType,
       })
       navigate('/', { replace: true })
     } catch (error) {
@@ -192,34 +177,6 @@ export function SignUpPage() {
             )}
           </p>
         )}
-
-        <FieldSet data-invalid={errors.account_type ? true : undefined}>
-          <FieldLegend variant="label">Tu primera cuenta</FieldLegend>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {ACCOUNT_TYPES.map((type) => (
-              <label
-                key={type.value}
-                className={`cursor-pointer rounded-[5px] border px-3 py-2.5 transition-colors ${
-                  accountType === type.value
-                    ? 'border-copper bg-copper/8'
-                    : 'border-rule hover:border-ink-faint'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="account_type"
-                  value={type.value}
-                  checked={accountType === type.value}
-                  onChange={() => setAccountType(type.value)}
-                  className="sr-only"
-                />
-                <span className="block text-[0.875rem] font-medium">{type.label}</span>
-                <span className="block text-[0.6875rem] text-ink-faint">{type.detail}</span>
-              </label>
-            ))}
-          </div>
-          {errors.account_type && <FieldError>{errors.account_type}</FieldError>}
-        </FieldSet>
 
         <Button
           type="submit"

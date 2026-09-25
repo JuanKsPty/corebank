@@ -126,22 +126,6 @@ func (q *Queries) DeleteCategory(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// SetTransactionCategory assigns or clears (categoryID == nil) the category a
-// customer's own transaction is filed under. Ownership is the caller's
-// responsibility, exactly like UpdateAccountAlias.
-func (q *Queries) SetTransactionCategory(ctx context.Context, transactionID uuid.UUID, categoryID *uuid.UUID) error {
-	const query = `UPDATE transactions SET category_id = $2, updated_at = now() WHERE id = $1`
-
-	tag, err := q.q.Exec(ctx, query, transactionID, categoryID)
-	if err != nil {
-		return wrap("store.SetTransactionCategory", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return wrap("store.SetTransactionCategory", pgx.ErrNoRows)
-	}
-	return nil
-}
-
 func nullIfEmpty(s string) any {
 	if s == "" {
 		return nil

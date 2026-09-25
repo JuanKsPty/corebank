@@ -121,7 +121,9 @@ services:
       # Empty is allowed: the API then signs tokens with a per-process secret, so
       # everything works but sessions do not survive a restart.
       JWT_SECRET: ${JWT_SECRET:-}
-      CONFIRMATION_TTL: ${CONFIRMATION_TTL:-2m}
+      # An existing local database from before migration 00011 needs this set
+      # to 00011 once; a fresh volume does not. See deploy/api.compose.yml.
+      COREBANK_CONFIRM_WIPE: ${COREBANK_CONFIRM_WIPE:-}
       # Unused in this stack — nginx serves the SPA and proxies /api on the same
       # origin, so no browser ever makes a cross-origin request. Passed through
       # for anyone pointing `npm run dev` at the containerised API.

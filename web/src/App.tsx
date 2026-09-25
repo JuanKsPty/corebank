@@ -8,7 +8,6 @@ import { AccountPage } from '@/pages/AccountPage'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { HistoryPage } from '@/pages/HistoryPage'
-import { ImportedAccountPage } from '@/pages/ImportedAccountPage'
 import { LandingPage } from '@/pages/LandingPage'
 import { SecurityPage } from '@/pages/SecurityPage'
 import { SignInPage } from '@/pages/SignInPage'
@@ -38,9 +37,8 @@ export function App() {
         <Route path="/panel" element={<RedirectToSignIn />} />
         <Route path="/cuentas" element={<RedirectToSignIn />} />
         <Route path="/historial" element={<RedirectToSignIn />} />
-        <Route path="/cuentas/:number" element={<RedirectToSignIn />} />
+        <Route path="/cuentas/:id" element={<RedirectToSignIn />} />
         <Route path="/seguridad" element={<RedirectToSignIn />} />
-        <Route path="/tarjetas/:id" element={<RedirectToSignIn />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     )
@@ -55,9 +53,8 @@ export function App() {
         <Route path="/panel" element={<DashboardPage />} />
         <Route path="/cuentas" element={<AccountsPage />} />
         <Route path="/historial" element={<HistoryPage />} />
-        <Route path="/cuentas/:number" element={<AccountPage />} />
+        <Route path="/cuentas/:id" element={<AccountPage />} />
         <Route path="/seguridad" element={<SecurityPage />} />
-        <Route path="/tarjetas/:id" element={<ImportedAccountPage />} />
         <Route path="/" element={<Navigate to="/panel" replace />} />
         {/* Somebody who signed in from the login page lands on their accounts rather
             than on a form they no longer need. */}

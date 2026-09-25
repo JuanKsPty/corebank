@@ -1,4 +1,4 @@
-import type { Amount, MovementKind, MovementStatus } from '@/api/types'
+import type { Account, Amount, EntryKind } from '@/api/types'
 
 /**
  * Rendering money and dates.
@@ -99,124 +99,77 @@ export function formatMonth(iso: string): string {
   return `${month.charAt(0).toUpperCase()}${month.slice(1)} ${date.getFullYear()}`
 }
 
-/** Seconds remaining until an ISO instant, floored at zero. */
-export function secondsUntil(iso: string): number {
-  return Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 1000))
-}
-
-/** "1:47" — a countdown for the confirmation card. */
-export function formatCountdown(seconds: number): string {
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
-}
-
 const ACCOUNT_TYPES: Record<string, string> = {
-  savings: 'Ahorros',
-  checking: 'Corriente',
-  investment: 'Inversión',
+  checking: 'Cuenta corriente',
+  savings: 'Cuenta de ahorros',
+  credit_card: 'Tarjeta de crédito',
+  brokerage: 'Inversiones',
 }
 
 export function accountTypeLabel(type: string): string {
   return ACCOUNT_TYPES[type] ?? type
 }
 
-/**
- * What to call an account on screen: the name its owner gave it, or its type.
- *
- * The fallback lives here and only here. Six screens label accounts, and if each one
- * worked out `alias || tipo` for itself, one of them would eventually be added without
- * it — and the screen that forgot would be the one showing two accounts that read
- * identically, which is the whole problem this exists to solve.
- *
- * The number is not folded in on purpose. Every caller shows it separately, because an
- * alias is how a person recognises an account and the number is how the bank identifies
- * one; aliases are not unique, so the number has to stay visible next to the name
- * rather than be replaced by it.
- */
-export function accountLabel(account: { alias?: string; account_type: string }): string {
-  return account.alias?.trim() || accountTypeLabel(account.account_type)
+const INSTITUTIONS: Record<string, string> = {
+  banco_general: 'Banco General',
+  bac: 'BAC',
+  ibkr: 'Interactive Brokers',
+}
+
+export function institutionLabel(institution: string): string {
+  return INSTITUTIONS[institution] ?? institution
 }
 
 /**
- * The account's type, but only when the label above it is showing something else.
+ * What to call an account on screen: the name its owner gave it, or the name its
+ * bank gives it.
  *
- * Naming an account must not hide what kind of account it is: "Gastos del mes" does not
- * say whether it is a current account or an investment one, and that matters. So when an
- * alias takes the headline the type moves down beside the number, and when there is no
- * alias this returns nothing, because the headline is already the type and printing it
- * twice would be noise.
+ * The fallback lives here and only here, so no screen can show two accounts that
+ * read identically because it forgot to fall back. The number is not folded in:
+ * callers show it separately, because an alias is how a person recognises an
+ * account and the number is how the bank identifies it.
  */
-export function accountTypeAside(account: {
-  alias?: string
-  account_type: string
-}): string | null {
-  return account.alias?.trim() ? accountTypeLabel(account.account_type) : null
+export function accountLabel(
+  account: Pick<Account, 'alias' | 'display_name' | 'type'>,
+): string {
+  return account.alias?.trim() || account.display_name || accountTypeLabel(account.type)
 }
 
-const MOVEMENT_KINDS: Record<MovementKind, string> = {
-  deposit: 'Depósito',
-  withdrawal: 'Retiro',
-  transfer: 'Transferencia',
-  internal_transfer: 'Traspaso',
+/** The last four characters of an account number, as a person tells accounts apart. */
+export function numberShort(number: string): string {
+  const digits = number.replace(/[^0-9]/g, '')
+  return digits.length >= 4 ? `···${digits.slice(-4)}` : number
 }
 
-export function movementLabel(kind: MovementKind): string {
-  return MOVEMENT_KINDS[kind] ?? kind
+const ENTRY_KINDS: Record<EntryKind, string> = {
+  income: 'Ingreso',
+  expense: 'Gasto',
+  refund: 'Reembolso',
+  fee: 'Comisión',
+  interest: 'Intereses',
+  transfer: 'Transferencia entre tus cuentas',
+  trade: 'Compraventa de valores',
 }
 
-const STATUSES: Record<MovementStatus, string> = {
-  pending: 'Por confirmar',
-  completed: 'Completado',
-  failed: 'Rechazado',
-  voided: 'Cancelado',
-  expired: 'Expirado',
+export function entryKindLabel(kind: EntryKind): string {
+  return ENTRY_KINDS[kind] ?? kind
 }
 
-export function statusLabel(status: MovementStatus): string {
-  return STATUSES[status] ?? status
+/** "01 jun" for a civil date, built from its parts so no zone can shift it. */
+export function formatCivilDayMonth(ymd: string): string {
+  const [year = 0, month = 1, day = 1] = ymd.split('-').map(Number)
+  return dayMonthFormat.format(new Date(year, month - 1, day))
 }
 
-/** The sentinel the API uses for a counterparty outside the bank. */
-export const EXTERNAL = 'EXTERNAL'
-
-export function counterpartyLabel(accountNumber: string | undefined): string {
-  if (!accountNumber) return '—'
-  return accountNumber === EXTERNAL ? 'Externo' : accountNumber
+/** "Junio 2026" for a civil date's month. */
+export function formatCivilMonth(ymd: string): string {
+  const [year = 0, month = 1] = ymd.split('-').map(Number)
+  const name = monthNameFormat.format(new Date(year, month - 1, 1))
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${year}`
 }
 
-/**
- * "···1300" — a counterparty reduced to what actually identifies it to a person.
- *
- * An account number here is always 19 characters: 16 digits in four dash-separated
- * groups. Spline Sans Mono advances 1200 units on a 2000-unit em for every glyph it
- * has, so at the 12px the statement uses those 19 characters need 19 × 7.2 ≈ 134px
- * — and the column they were being drawn in had a 104px content box. With
- * `white-space: nowrap` and nothing clipping them, the last 30px painted straight
- * over the rule dividing the debit and credit sides. That was the bug.
- *
- * Widening the column is not the fix: it would have to grow by a third to hold a
- * string whose leading twelve digits are the same on every row. The
- * last four are what a person reads to tell two of their accounts apart, they are
- * what the account cards already show, and they need 7 glyphs ≈ 50px. The full
- * number stays one hover or one tap away.
- */
-export function counterpartyShort(accountNumber: string | undefined): string {
-  if (!accountNumber) return '—'
-  if (accountNumber === EXTERNAL) return 'Externo'
-  return `···${accountNumber.slice(-4)}`
-}
-
-/**
- * Which side of the account a movement falls on, from the customer's point of
- * view. A transfer between two of their own accounts is both, which is why the
- * decision needs the set of accounts they hold rather than just the movement.
- */
-export type Side = 'debit' | 'credit'
-
-export function sideOf(
-  movement: { from_account?: string; to_account?: string },
-  ownedAccounts: ReadonlySet<string>,
-): Side {
-  if (movement.from_account && ownedAccounts.has(movement.from_account)) return 'debit'
-  return 'credit'
+/** Today in the browser's own calendar, as YYYY-MM-DD. */
+export function todayCivil(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }

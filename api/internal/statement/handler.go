@@ -24,16 +24,16 @@ func NewHandler() *Handler { return &Handler{} }
 // Routes returns the /api/imports subrouter.
 func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Post("/dry-run", h.dryRun)
+	r.Post("/dry-run", h.DryRun)
 	return r
 }
 
-// dryRun parses an uploaded file and reports what it says, writing nothing.
+// DryRun parses an uploaded file and reports what it says, writing nothing.
 //
 // It exists so a real file can be checked on the real deployment before
 // anything depends on the parse being right: identity, period, the bank's own
 // balances, and the first line where they stop adding up.
-func (h *Handler) dryRun(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) DryRun(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
 		httpx.Fail(w, r, httpx.BadRequest("upload_too_large_or_malformed",

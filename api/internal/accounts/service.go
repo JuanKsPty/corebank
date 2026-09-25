@@ -1,393 +1,365 @@
+// Package accounts serves the owner's real-world accounts — bank accounts,
+// cards and brokerage accounts — with balances computed from what their
+// statements printed.
+//
+// An account's balance is its opening plus the sum of its movements. The
+// opening is not stored: it is derived from one anchor, a balance somebody
+// stated (a statement's opening, IBKR's cash report, or the owner reading their
+// bank or card statement). Every other stated balance is an assertion, and its
+// drift — stated minus computed — is how a mismatch is found rather than hidden
+// under a correcting entry.
 package accounts
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 
-	"github.com/JuanKsPty/corebank/api/internal/ledger"
+	"github.com/JuanKsPty/corebank/api/internal/civil"
 	"github.com/JuanKsPty/corebank/api/internal/money"
 	"github.com/JuanKsPty/corebank/api/internal/store"
 )
 
 var (
-	// ErrNotFound means no account has that number.
+	// ErrNotFound means no such account belongs to the caller. An account
+	// that exists but is someone else's is reported the same way, so an id
+	// cannot be probed.
 	ErrNotFound = errors.New("accounts: account not found")
-
-	// ErrNotOwned means the account exists but belongs to someone else. It is
-	// kept distinct from ErrNotFound inside the service so the reason is visible
-	// in logs; what the customer is told is decided at the HTTP layer, which
-	// answers "not found" for both so account numbers cannot be probed for
-	// existence.
-	ErrNotOwned = errors.New("accounts: account belongs to another user")
-
-	// ErrNumberUnavailable means the generator could not find a free account
-	// number. With twelve random digits this indicates a broken generator rather
-	// than a full namespace.
-	ErrNumberUnavailable = errors.New("accounts: could not allocate an account number")
-
-	// ErrTooManyAccounts is returned when a customer already holds the most accounts
-	// one person may open. A real bank has such a limit for anti-abuse reasons and so
-	// does this one; without it a single session could open accounts until the number
-	// space ran short, and every one of them would be a row the statement has to scan.
-	ErrTooManyAccounts = errors.New("accounts: the customer already holds the maximum number of accounts")
-
-	// ErrAccountNotEmpty means the account still holds funds. TigerBeetle has
-	// no delete operation at all — this is the closest thing corebank has to
-	// closing an account, and it never closes one that still holds money.
-	ErrAccountNotEmpty = errors.New("accounts: account still holds funds")
-
-	// ErrLastAccount means this is the only account the customer has left.
-	// Deleting it would leave "the customer's only account" — the shorthand
-	// a deposit or a chat request without a named account resolves to —
-	// with nothing to resolve to.
-	ErrLastAccount = errors.New("accounts: cannot delete a customer's only account")
-
-	// ErrAccountLinked means an investment account still has an IBKR link.
-	// Deleting it would cascade away the link, its positions and its trades
-	// with no confirmation that was the point — unlinking is its own,
-	// deliberate step.
-	ErrAccountLinked = errors.New("accounts: account still has an external link")
+	// ErrNotRelabelable means the account is a card or a brokerage account,
+	// whose type follows from what it is.
+	ErrNotRelabelable = errors.New("accounts: only a bank account can be relabelled checking or savings")
+	// ErrCheckpointNotFound means no such checkpoint belongs to the account.
+	ErrCheckpointNotFound = errors.New("accounts: checkpoint not found")
 )
 
-// Account is an account with the balance the ledger reports for it.
+// Service reads and manages accounts.
+type Service struct {
+	db *store.DB
+}
+
+func NewService(db *store.DB) *Service { return &Service{db: db} }
+
+// Account is an account with its computed position.
 type Account struct {
 	store.Account
-	Balance ledger.Balance
+	// Balance is signed from the holder's view: a card that owes 14.30 has
+	// -14.30. It is only meaningful when Anchored.
+	Balance money.Cents
+	// Anchored reports whether a stated balance fixes the opening. Without
+	// one the balance is just the sum of the imported movements, which for a
+	// card with no previous balance is not what the bank says.
+	Anchored bool
+	// Holdings is a brokerage account's positions' market value.
+	Holdings money.Cents
+	// Drift is the latest checkpoint's stated minus computed balance, when a
+	// checkpoint other than the anchor exists.
+	Drift     *Drift
+	Movements int
+	LastDay   civil.Date
 }
 
-// Service reads and opens accounts.
-type Service struct {
-	db   *store.DB
-	book ledger.Ledger
+// Drift is how far a stated balance is from the computed one.
+type Drift struct {
+	AsOf     civil.Date
+	Stated   money.Cents
+	Computed money.Cents
+	Source   string
 }
 
-func NewService(db *store.DB, book ledger.Ledger) *Service {
-	return &Service{db: db, book: book}
-}
+// Difference is stated minus computed.
+func (d Drift) Difference() money.Cents { return d.Stated - d.Computed }
 
-// numberAttempts bounds the retry loop that looks for a free account number.
-const numberAttempts = 5
-
-// maxAccountsPerCustomer caps how many accounts one person may hold: room for a
-// few real accounts without letting one registration open an unbounded number.
-const maxAccountsPerCustomer = 6
-
-// Open creates an account for a user: a row in PostgreSQL and the matching
-// account in the ledger.
-//
-// It takes the queries rather than opening its own transaction so registration
-// can create a user and their first account atomically. The order inside is
-// deliberate: the ledger account is created *before* the caller commits, because
-// the two possible failures are not equally bad. A ledger account with no
-// PostgreSQL row is inert — nothing references it, it holds nothing, and
-// creating it again is a no-op. A PostgreSQL row with no ledger account is a
-// broken account whose balance cannot be read. So the reversible half goes last.
-//
-// The alias is taken already normalised: this is the low-level half that registration
-// shares, and validating the same string twice invites the two checks to disagree.
-func (s *Service) Open(ctx context.Context, q *store.Queries, userID uuid.UUID, kind ledger.AccountKind, alias string) (store.Account, error) {
-	number, err := s.allocateNumber(ctx, q)
-	if err != nil {
-		return store.Account{}, err
-	}
-
-	ledgerID, err := ledger.AccountIDFromNumber(number)
-	if err != nil {
-		return store.Account{}, fmt.Errorf("accounts: deriving the ledger id: %w", err)
-	}
-
-	account, err := q.CreateAccount(ctx, store.Account{
-		ID:       uuid.New(),
-		UserID:   userID,
-		Number:   number,
-		LedgerID: ledgerID,
-		Kind:     kind,
-		Alias:    alias,
-		Currency: money.CurrencyUSD,
-	})
-	if err != nil {
-		// The pre-check in allocateNumber lost a race with a concurrent
-		// registration. The unique constraint is the authority, and it just
-		// spoke; retrying here is not possible because the failed statement has
-		// aborted the caller's transaction, so the caller retries the whole
-		// registration instead.
-		if store.IsConstraint(err, store.AccountsNumberConstraint) ||
-			store.IsConstraint(err, store.AccountsLedgerIDConstraint) {
-			return store.Account{}, fmt.Errorf("%w: %s was taken concurrently", ErrNumberUnavailable, number)
-		}
-		return store.Account{}, err
-	}
-
-	err = s.book.EnsureAccounts(ctx, []ledger.NewAccount{{
-		ID:    ledgerID,
-		Kind:  kind,
-		Owner: userID,
-	}})
-	if err != nil {
-		return store.Account{}, fmt.Errorf("accounts: creating the ledger account: %w", err)
-	}
-	return account, nil
-}
-
-// allocateNumber finds an unused account number.
-//
-// The existence check is only an optimisation that avoids burning a transaction
-// on a collision; the unique constraint on the column remains the authority,
-// because between this check and the insert another request could take the same
-// number.
-func (s *Service) allocateNumber(ctx context.Context, q *store.Queries) (string, error) {
-	for range numberAttempts {
-		number, err := GenerateNumber()
-		if err != nil {
-			return "", err
-		}
-		taken, err := q.AccountNumberTaken(ctx, number)
-		if err != nil {
-			return "", err
-		}
-		if !taken {
-			return number, nil
-		}
-	}
-	return "", ErrNumberUnavailable
-}
-
-// List returns a user's accounts with their balances.
+// List returns the user's accounts with their positions.
 func (s *Service) List(ctx context.Context, userID uuid.UUID) ([]Account, error) {
 	rows, err := s.db.Q().AccountsByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	return s.withBalances(ctx, rows)
-}
-
-// Get returns one account belonging to userID.
-func (s *Service) Get(ctx context.Context, userID uuid.UUID, number string) (Account, error) {
-	row, err := s.db.Q().AccountByNumber(ctx, number)
+	sums, err := s.db.Q().SumsByAccount(ctx, userID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return Account{}, fmt.Errorf("%w: %s", ErrNotFound, number)
-		}
-		return Account{}, err
+		return nil, err
 	}
-	if row.UserID != userID {
-		return Account{}, fmt.Errorf("%w: %s", ErrNotOwned, number)
-	}
-
-	withBalance, err := s.withBalances(ctx, []store.Account{row})
+	holdings, err := s.db.Q().HoldingsByUser(ctx, userID)
 	if err != nil {
-		return Account{}, err
+		return nil, err
 	}
-	return withBalance[0], nil
-}
-
-// Resolve finds an account by number and checks that userID owns it.
-//
-// This is the guard every money-moving path calls on its *source* account, and
-// the one the AI's tools rely on: the assistant may name any account as a
-// destination, which is what a transfer is, but a source it does not own is
-// rejected here regardless of what the model asked for.
-func (s *Service) Resolve(ctx context.Context, userID uuid.UUID, number string) (store.Account, error) {
-	row, err := s.db.Q().AccountByNumber(ctx, number)
+	checkpoints, err := s.db.Q().CheckpointsByUser(ctx, userID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return store.Account{}, fmt.Errorf("%w: %s", ErrNotFound, number)
-		}
-		return store.Account{}, err
+		return nil, err
 	}
-	if row.UserID != userID {
-		return store.Account{}, fmt.Errorf("%w: %s", ErrNotOwned, number)
-	}
-	return row, nil
-}
-
-// Rename sets what a customer calls one of their accounts.
-//
-// Ownership is checked by Resolve, the same function every other operation on a
-// customer's own account goes through, so a rename cannot reach an account the caller
-// does not hold and the rule lives in one place.
-//
-// An empty alias is a valid request: it is how a name is removed. There is nothing to
-// undo and nothing in the ledger to touch — this is a label on a row of metadata, and
-// no amount of renaming can move money.
-func (s *Service) Rename(ctx context.Context, userID uuid.UUID, number, rawAlias string) (Account, error) {
-	alias, err := normaliseAlias(rawAlias)
-	if err != nil {
-		return Account{}, err
-	}
-
-	row, err := s.Resolve(ctx, userID, number)
-	if err != nil {
-		return Account{}, err
-	}
-	if err := s.db.Q().UpdateAccountAlias(ctx, row.Number, alias); err != nil {
-		return Account{}, err
-	}
-	row.Alias = alias
-
-	// The balance comes back with it, so the caller can render the account without a
-	// second request and the response is the same shape every other account endpoint
-	// returns.
-	withBalance, err := s.withBalances(ctx, []store.Account{row})
-	if err != nil {
-		return Account{}, err
-	}
-	return withBalance[0], nil
-}
-
-// Delete removes an account the customer no longer wants.
-//
-// "Delete" is the word the interface uses; what actually happens is narrower.
-// TigerBeetle has no operation that deletes an account, so the ledger account
-// this pointed to persists forever, holding whatever balance it already had —
-// which is why this refuses unless that balance is zero. Below that, deleting
-// is just removing the PostgreSQL row: the app stops showing the account, and
-// nothing about real transaction history changes, because transactions are
-// never linked to an account by id, only by the number that keeps existing
-// wherever it was already recorded.
-func (s *Service) Delete(ctx context.Context, userID uuid.UUID, number string) error {
-	account, err := s.Resolve(ctx, userID, number)
-	if err != nil {
-		return err
-	}
-
-	balances, err := s.book.Balances(ctx, []ledger.AccountID{account.LedgerID})
-	if err != nil {
-		return fmt.Errorf("accounts: reading balance: %w", err)
-	}
-	if balance := balances[account.LedgerID]; balance.Posted != 0 || balance.Held != 0 {
-		return fmt.Errorf("%w: %s", ErrAccountNotEmpty, number)
-	}
-
-	held, err := s.db.Q().AccountsByUser(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if len(held) <= 1 {
-		return fmt.Errorf("%w: %s", ErrLastAccount, number)
-	}
-
-	if account.Kind == ledger.KindInvestment {
-		if _, err := s.db.Q().IBKRLinkByAccountID(ctx, account.ID); err == nil {
-			return fmt.Errorf("%w: %s", ErrAccountLinked, number)
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return err
-		}
-	}
-
-	return s.db.Q().DeleteAccount(ctx, account.ID)
-}
-
-// Lookup finds any account by number without an ownership check, for validating
-// a transfer's destination.
-func (s *Service) Lookup(ctx context.Context, number string) (store.Account, error) {
-	row, err := s.db.Q().AccountByNumber(ctx, number)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return store.Account{}, fmt.Errorf("%w: %s", ErrNotFound, number)
-		}
-		return store.Account{}, err
-	}
-	return row, nil
-}
-
-// Total sums the available balance across a user's accounts, for the dashboard's
-// consolidated figure.
-func (s *Service) Total(ctx context.Context, list []Account) money.Cents {
-	var total money.Cents
-	for _, a := range list {
-		total = total.Add(a.Balance.Available)
-	}
-	return total
-}
-
-// withBalances attaches ledger balances to account rows.
-//
-// One batched ledger lookup for all of them, not one per account: this is what
-// the dashboard calls, and a per-account round trip would make the page's cost
-// grow with the number of accounts for no reason.
-func (s *Service) withBalances(ctx context.Context, rows []store.Account) ([]Account, error) {
-	if len(rows) == 0 {
-		return nil, nil
-	}
-
-	ids := make([]ledger.AccountID, 0, len(rows))
-	for _, r := range rows {
-		ids = append(ids, r.LedgerID)
-	}
-
-	balances, err := s.book.Balances(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("accounts: reading balances: %w", err)
+	byAccount := map[uuid.UUID][]store.Checkpoint{}
+	for _, c := range checkpoints {
+		byAccount[c.AccountID] = append(byAccount[c.AccountID], c)
 	}
 
 	out := make([]Account, 0, len(rows))
-	for _, r := range rows {
-		balance, ok := balances[r.LedgerID]
-		if !ok {
-			// A row whose ledger account is missing means the two stores have
-			// drifted. Reporting it as a zero balance would be a lie about
-			// money, so it is an error.
-			return nil, fmt.Errorf("accounts: %s has no ledger account (id %d)", r.Number, r.LedgerID)
+	for _, row := range rows {
+		a, err := s.position(ctx, row, sums[row.ID], holdings[row.ID], byAccount[row.ID])
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, Account{Account: r, Balance: balance})
+		out = append(out, a)
 	}
 	return out, nil
 }
 
-// OpenFor opens an additional account for an existing customer.
-//
-// The difference from Open is the transaction: registration already has one open and
-// needs its user and first account to commit together, so Open takes the queries.
-// Everything after registration comes through here, which owns the transaction and can
-// therefore retry it.
-//
-// That retry is the reason this cannot simply be Open with a wrapper. An account number
-// is allocated by pre-checking for a free one and relying on the unique constraint as
-// the authority; when the constraint speaks, the statement has already aborted the
-// transaction, so the only way forward is a new one. Registration handles that by
-// retrying the whole registration. Here the whole thing is just this.
-func (s *Service) OpenFor(ctx context.Context, userID uuid.UUID, kind ledger.AccountKind, rawAlias string) (Account, error) {
+// Get returns one of the user's accounts with its position.
+func (s *Service) Get(ctx context.Context, userID, id uuid.UUID) (Account, error) {
+	row, err := s.resolve(ctx, userID, id)
+	if err != nil {
+		return Account{}, err
+	}
+	sums, err := s.db.Q().SumsByAccount(ctx, userID)
+	if err != nil {
+		return Account{}, err
+	}
+	holdings, err := s.db.Q().HoldingsByUser(ctx, userID)
+	if err != nil {
+		return Account{}, err
+	}
+	cps, err := s.db.Q().CheckpointsByAccount(ctx, userID, id)
+	if err != nil {
+		return Account{}, err
+	}
+	return s.position(ctx, row, sums[id], holdings[id], cps)
+}
+
+func (s *Service) position(ctx context.Context, row store.Account, sums store.AccountSums,
+	holdings money.Cents, cps []store.Checkpoint) (Account, error) {
+	a := Account{Account: row, Balance: sums.Total, Holdings: holdings, Movements: sums.Count, LastDay: sums.LastBooking}
+
+	anchor, ok := Anchor(cps)
+	if !ok {
+		return a, nil
+	}
+	opening, err := s.Opening(ctx, anchor)
+	if err != nil {
+		return Account{}, err
+	}
+	a.Anchored = true
+	a.Balance = opening + sums.Total
+
+	// The latest assertion is the one worth showing: it says whether the
+	// account matches the bank now.
+	for i := len(cps) - 1; i >= 0; i-- {
+		c := cps[i]
+		if c.ID == anchor.ID {
+			continue
+		}
+		computed, err := s.balanceAt(ctx, c, opening)
+		if err != nil {
+			return Account{}, err
+		}
+		a.Drift = &Drift{AsOf: c.AsOf, Stated: c.Balance, Computed: computed, Source: c.Source}
+		break
+	}
+	return a, nil
+}
+
+// Anchor picks the checkpoint the opening balance is derived from: the pinned
+// one, otherwise the earliest — with a statement's own opening preferred over
+// anything else stated for the same day. cps must be ordered by as_of.
+func Anchor(cps []store.Checkpoint) (store.Checkpoint, bool) {
+	if len(cps) == 0 {
+		return store.Checkpoint{}, false
+	}
+	for _, c := range cps {
+		if c.Pinned {
+			return c, true
+		}
+	}
+	sorted := append([]store.Checkpoint(nil), cps...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if c := sorted[i].AsOf.Compare(sorted[j].AsOf); c != 0 {
+			return c < 0
+		}
+		return rank(sorted[i]) < rank(sorted[j])
+	})
+	return sorted[0], true
+}
+
+func rank(c store.Checkpoint) int {
+	switch c.Source {
+	case store.SourceStatementOpening:
+		return 0
+	case store.SourceStatementClosing, store.SourceBroker:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// Opening is the balance before every movement, derived from an anchor.
+func (s *Service) Opening(ctx context.Context, anchor store.Checkpoint) (money.Cents, error) {
+	before, err := s.sumAt(ctx, anchor)
+	if err != nil {
+		return 0, err
+	}
+	return anchor.Balance - before, nil
+}
+
+// BalanceAt is what the movements say the balance was at a checkpoint.
+func (s *Service) BalanceAt(ctx context.Context, c store.Checkpoint, opening money.Cents) (money.Cents, error) {
+	return s.balanceAt(ctx, c, opening)
+}
+
+func (s *Service) balanceAt(ctx context.Context, c store.Checkpoint, opening money.Cents) (money.Cents, error) {
+	sum, err := s.sumAt(ctx, c)
+	if err != nil {
+		return 0, err
+	}
+	return opening + sum, nil
+}
+
+// sumAt totals the movements a checkpoint's balance includes: everything
+// before its entry, or everything through the end of its day.
+func (s *Service) sumAt(ctx context.Context, c store.Checkpoint) (money.Cents, error) {
+	if c.BeforeEntryID != nil {
+		return s.db.Q().SumBefore(ctx, c.AccountID, *c.BeforeEntryID)
+	}
+	return s.db.Q().SumThroughDay(ctx, c.AccountID, c.AsOf)
+}
+
+// Rename sets or clears an account's alias.
+func (s *Service) Rename(ctx context.Context, userID, id uuid.UUID, rawAlias string) (Account, error) {
 	alias, err := normaliseAlias(rawAlias)
 	if err != nil {
 		return Account{}, err
 	}
+	if err := s.db.Q().SetAccountAlias(ctx, userID, id, alias); err != nil {
+		return Account{}, notFound(err)
+	}
+	return s.Get(ctx, userID, id)
+}
 
-	held, err := s.db.Q().AccountsByUser(ctx, userID)
-	if err != nil {
+// SetType relabels a bank account as checking or savings.
+func (s *Service) SetType(ctx context.Context, userID, id uuid.UUID, typ string) (Account, error) {
+	if typ != "checking" && typ != "savings" {
+		return Account{}, ErrNotRelabelable
+	}
+	if _, err := s.resolve(ctx, userID, id); err != nil {
 		return Account{}, err
 	}
-	if len(held) >= maxAccountsPerCustomer {
-		return Account{}, fmt.Errorf("%w: %d", ErrTooManyAccounts, len(held))
-	}
-
-	var opened store.Account
-	for attempt := 0; attempt < numberAttempts; attempt++ {
-		err = s.db.InTx(ctx, func(q *store.Queries) error {
-			var openErr error
-			opened, openErr = s.Open(ctx, q, userID, kind, alias)
-			return openErr
-		})
-		if err == nil {
-			break
+	if err := s.db.Q().SetAccountType(ctx, userID, id, typ); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return Account{}, ErrNotRelabelable
 		}
-		if !errors.Is(err, ErrNumberUnavailable) {
-			return Account{}, err
-		}
-	}
-	if err != nil {
 		return Account{}, err
 	}
+	return s.Get(ctx, userID, id)
+}
 
-	// Read the balance back rather than assuming zero. It is zero, but composing the
-	// response the same way every other endpoint does means the new account cannot be
-	// the one shape the frontend has to special-case.
-	withBalance, err := s.withBalances(ctx, []store.Account{opened})
-	if err != nil {
-		return Account{}, err
+// Delete removes an account with everything imported into it. Importing its
+// files again recreates it with the same movements.
+func (s *Service) Delete(ctx context.Context, userID, id uuid.UUID) error {
+	return notFound(s.db.Q().DeleteAccount(ctx, userID, id))
+}
+
+// CheckpointInput is a balance the owner states.
+type CheckpointInput struct {
+	AsOf civil.Date
+	// Balance is signed from the holder's view; for a card the caller turns
+	// "owed 14.30" into -14.30.
+	Balance        money.Cents
+	Pin            bool
+	DueOn          *civil.Date
+	MinimumPayment *money.Cents
+	Note           string
+}
+
+// AddCheckpoint records a stated balance. Pinned, it becomes the anchor the
+// opening is derived from.
+func (s *Service) AddCheckpoint(ctx context.Context, userID, accountID uuid.UUID, in CheckpointInput) (store.Checkpoint, error) {
+	if in.AsOf.IsZero() {
+		return store.Checkpoint{}, fmt.Errorf("accounts: a checkpoint needs a date")
 	}
-	return withBalance[0], nil
+	c := store.Checkpoint{
+		ID: uuid.New(), UserID: userID, AccountID: accountID, AsOf: in.AsOf, Balance: in.Balance,
+		Source: store.SourceManual, DueOn: in.DueOn, MinimumPayment: in.MinimumPayment, Note: in.Note,
+	}
+	err := s.db.InTx(ctx, func(q *store.Queries) error {
+		if err := q.LockUser(ctx, userID); err != nil {
+			return err
+		}
+		if _, err := q.AccountByID(ctx, userID, accountID); err != nil {
+			return notFound(err)
+		}
+		if err := q.CreateCheckpoint(ctx, c); err != nil {
+			return err
+		}
+		if in.Pin {
+			c.Pinned = true
+			return q.PinCheckpoint(ctx, userID, accountID, &c.ID)
+		}
+		return nil
+	})
+	return c, err
+}
+
+// DeleteCheckpoint removes a checkpoint the owner entered.
+func (s *Service) DeleteCheckpoint(ctx context.Context, userID, id uuid.UUID) error {
+	if err := s.db.Q().DeleteManualCheckpoint(ctx, userID, id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return ErrCheckpointNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+// Pin makes a checkpoint the account's anchor, or unpins with nil so the
+// earliest checkpoint anchors again.
+func (s *Service) Pin(ctx context.Context, userID, accountID uuid.UUID, checkpointID *uuid.UUID) error {
+	return s.db.InTx(ctx, func(q *store.Queries) error {
+		if err := q.LockUser(ctx, userID); err != nil {
+			return err
+		}
+		if _, err := q.AccountByID(ctx, userID, accountID); err != nil {
+			return notFound(err)
+		}
+		if err := q.PinCheckpoint(ctx, userID, accountID, checkpointID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return ErrCheckpointNotFound
+			}
+			return err
+		}
+		return nil
+	})
+}
+
+// Checkpoints lists an account's checkpoints.
+func (s *Service) Checkpoints(ctx context.Context, userID, accountID uuid.UUID) ([]store.Checkpoint, error) {
+	if _, err := s.resolve(ctx, userID, accountID); err != nil {
+		return nil, err
+	}
+	return s.db.Q().CheckpointsByAccount(ctx, userID, accountID)
+}
+
+// NetWorth sums every account's balance and holdings. Liability balances are
+// negative already, so this is assets minus debts plus investments.
+func NetWorth(list []Account) (assets, liabilities, holdings money.Cents) {
+	for _, a := range list {
+		if a.Class == "liability" {
+			liabilities += a.Balance
+		} else {
+			assets += a.Balance
+		}
+		holdings += a.Holdings
+	}
+	return assets, liabilities, holdings
+}
+
+func (s *Service) resolve(ctx context.Context, userID, id uuid.UUID) (store.Account, error) {
+	a, err := s.db.Q().AccountByID(ctx, userID, id)
+	return a, notFound(err)
+}
+
+func notFound(err error) error {
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("%w: %v", ErrNotFound, err)
+	}
+	return err
 }

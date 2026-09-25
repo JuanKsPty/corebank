@@ -1,15 +1,13 @@
 // Command api is the corebank backend.
 //
-// Startup order is deliberate and fails loudly: configuration, then the two
-// stores, then the schema, then the ledger's equity account, and only then the
-// HTTP listener. Nothing accepts traffic until everything it depends on is
+// Startup order is deliberate and fails loudly: configuration, then the
+// database, then the schema, and only then the HTTP listener. Nothing accepts traffic until everything it depends on is
 // known to be reachable, so a misconfigured deployment fails at boot with a
 // specific message instead of serving 500s.
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,21 +17,18 @@ import (
 
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
 	"github.com/JuanKsPty/corebank/api/internal/auth"
-	"github.com/JuanKsPty/corebank/api/internal/bankimport"
 	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/chat"
 	"github.com/JuanKsPty/corebank/api/internal/config"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
+	"github.com/JuanKsPty/corebank/api/internal/imports"
 	"github.com/JuanKsPty/corebank/api/internal/investments"
-	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/llm"
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/mcpserver"
+	"github.com/JuanKsPty/corebank/api/internal/movements"
 	"github.com/JuanKsPty/corebank/api/internal/server"
-	"github.com/JuanKsPty/corebank/api/internal/statement"
 	"github.com/JuanKsPty/corebank/api/internal/store"
-	"github.com/JuanKsPty/corebank/api/internal/tigerbeetle"
-	"github.com/JuanKsPty/corebank/api/internal/transactions"
 )
 
 func main() {
@@ -82,42 +77,23 @@ func run() error {
 	}
 	logger.Info("schema up to date")
 
-	book, err := connectLedger(ctx, cfg, logger)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := book.Close(); err != nil {
-			logger.Error("closing the ledger client failed", "error", err)
-		}
-	}()
-
-	// Double-entry bookkeeping has no single-sided postings, so the equity
-	// counterparty has to exist before the first deposit can be recorded.
-	// Creating it is idempotent.
-	if err := book.EnsureAccounts(ctx, []ledger.NewAccount{ledger.World()}); err != nil {
-		return fmt.Errorf("ensuring the equity account: %w", err)
-	}
-	logger.Info("ledger ready", "addresses", cfg.TB.Addresses)
-
-	accountsSvc := accounts.NewService(db, book)
+	accountsSvc := accounts.NewService(db)
 	categoriesSvc := categories.NewService(db)
+	movementsSvc := movements.NewService(db, categoriesSvc)
+	importsSvc := imports.NewService(db, categoriesSvc)
+	investmentsSvc := investments.NewService(db, cfg.IBKR.TokenEncryptionKey)
 
 	authSvc, err := auth.NewService(db, accountsSvc, categoriesSvc, cfg.Auth)
 	if err != nil {
 		return err
 	}
 
-	txSvc := transactions.NewService(db, book, accountsSvc, categoriesSvc, cfg.AI.HoldTTL)
-	investmentsSvc := investments.NewService(db, accountsSvc, txSvc, cfg.IBKR.TokenEncryptionKey)
-	bankImportSvc := bankimport.NewService(db, categoriesSvc, accountsSvc, txSvc)
-
 	// Without an API key the assistant reports itself unavailable, and the
 	// interface says why.
 	provider := selectProvider(db, cfg.AI, logger)
 	chatSvc := chat.NewService(db, mcpserver.Deps{
-		Accounts:     accountsSvc,
-		Transactions: txSvc,
+		Accounts:  accountsSvc,
+		Movements: movementsSvc,
 	}, provider, cfg.AI.MaxToolTurns)
 
 	loginLimiter := httpx.NewRateLimiter(cfg.Auth.LoginRateLimit)
@@ -132,25 +108,19 @@ func run() error {
 		Config: cfg,
 		Logger: logger,
 		Health: map[string]httpx.Checker{
-			"postgres":    db,
-			"tigerbeetle": book,
+			"postgres": db,
 		},
-		Auth:         auth.NewHandler(authSvc, cfg.Env == "production", loginLimiter, pinLoginLimiter),
-		Tokens:       authSvc.Tokens(),
-		Accounts:     accounts.NewHandler(accountsSvc),
-		Transactions: transactions.NewHandler(txSvc),
-		Categories:   categories.NewHandler(categoriesSvc),
-		Investments:  investments.NewHandler(investmentsSvc),
-		BankImport:   bankimport.NewHandler(bankImportSvc),
-		Statements:   statement.NewHandler(),
-		Chat:         chat.NewHandler(chatSvc, authSvc, chatLimiter),
+		Auth:        auth.NewHandler(authSvc, cfg.Env == "production", loginLimiter, pinLoginLimiter),
+		Tokens:      authSvc.Tokens(),
+		Accounts:    accounts.NewHandler(accountsSvc),
+		Movements:   movements.NewHandler(movementsSvc),
+		Categories:  categories.NewHandler(categoriesSvc),
+		Investments: investments.NewHandler(investmentsSvc),
+		Imports:     imports.NewHandler(importsSvc, db),
+		Chat:        chat.NewHandler(chatSvc, authSvc, chatLimiter),
 	})
 
 	go housekeeping(ctx, authSvc, []*httpx.RateLimiter{loginLimiter, pinLoginLimiter, chatLimiter}, logger)
-
-	// Reconciliation runs from the moment the process starts: its first pass is
-	// what recovers movements left unresolved by whatever caused the last restart.
-	go transactions.NewSweeper(db, book, cfg.AI.HoldTTL, logger).Run(ctx, time.Minute)
 
 	return server.Run(ctx, cfg.HTTP.Addr, router, cfg.HTTP.ShutdownTimeout, logger)
 }
@@ -184,41 +154,6 @@ func housekeeping(ctx context.Context, authSvc *auth.Service, limiters []*httpx.
 			}
 			logger.Debug("housekeeping", "sessions_pruned", removed,
 				"rate_limit_buckets_dropped", dropped)
-		}
-	}
-}
-
-// connectLedger dials TigerBeetle, retrying for the same reason Postgres does:
-// in the compose stack the replica may report healthy a moment before it
-// accepts a client, and one refused connection should not become a restart loop.
-func connectLedger(ctx context.Context, cfg config.Config, logger *slog.Logger) (*tigerbeetle.Adapter, error) {
-	deadline := time.Now().Add(cfg.TB.ConnectWait)
-
-	for attempt := 1; ; attempt++ {
-		adapter, err := tigerbeetle.Connect(cfg.TB.ClusterID, cfg.TB.Addresses)
-		if err == nil {
-			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err = adapter.Ping(pingCtx)
-			cancel()
-			if err == nil {
-				return adapter, nil
-			}
-			_ = adapter.Close()
-		}
-
-		if ctx.Err() != nil {
-			return nil, errors.Join(ctx.Err(), err)
-		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("tigerbeetle unreachable at %v after %s: %w",
-				cfg.TB.Addresses, cfg.TB.ConnectWait, err)
-		}
-		logger.Warn("tigerbeetle not ready, retrying", "attempt", attempt, "error", err)
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Second):
 		}
 	}
 }

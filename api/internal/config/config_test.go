@@ -137,7 +137,6 @@ func TestLoadRejects(t *testing.T) {
 		{"DB_MAX_CONNS", "0"},
 		{"HTTP_SHUTDOWN_TIMEOUT", "-5s"},
 		{"AI_MAX_TOOL_TURNS", "0"},
-		{"TB_ADDRESSES", ","},
 		{"IBKR_TOKEN_ENCRYPTION_KEY", "not valid base64!!"},
 		{"IBKR_TOKEN_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("too short"))},
 	} {
@@ -159,9 +158,8 @@ func clearEnv(t *testing.T) {
 	for _, key := range []string{
 		"ENV", "HTTP_ADDR", "HTTP_SHUTDOWN_TIMEOUT", "CORS_ORIGINS",
 		"DATABASE_URL", "DB_MAX_CONNS", "DB_CONNECT_WAIT",
-		"TB_CLUSTER_ID", "TB_ADDRESSES", "TB_CONNECT_WAIT",
 		"JWT_SECRET", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "BCRYPT_COST", "LOGIN_RATE_LIMIT",
-		"ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "CONFIRMATION_TTL", "AI_MAX_TOOL_TURNS",
+		"ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "AI_MAX_TOOL_TURNS",
 		"IBKR_TOKEN_ENCRYPTION_KEY",
 		"LOG_LEVEL", "LOG_FORMAT",
 	} {

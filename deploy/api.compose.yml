@@ -1,68 +1,53 @@
 # The API, as deployed.
 #
 # Separate from docker-compose.yml because that file is the whole system on one
-# host — what somebody who just cloned the repository runs. Here the store is
-# its own deployment: PostgreSQL is a managed resource and the ledger has its
-# own stack, so this file contains only the one thing that shares this
-# lifecycle.
+# host — what somebody who just cloned the repository runs. Here PostgreSQL is a
+# managed resource of its own, so this file contains only the one thing that
+# shares this lifecycle.
 #
 # This deployment runs on real data: each user's own registration, plus the
-# bank-import and IBKR-sync pipelines.
-#
-# Not a Dokploy "Application", which would deploy this as a Swarm service. Swarm
-# ignores security_opt, and the TigerBeetle client opens its own io_uring — under
-# the default seccomp profile it aborts with "failed to initialize IO:
-# PermissionDenied" and takes the process down. This has to be plain compose.
+# statement imports and the IBKR sync.
 
 services:
   api:
     build:
       context: ../api
     image: corebank-api
-    security_opt:
-      # Required by the ledger client, not by the HTTP server. See the note above.
-      - seccomp=unconfined
     environment:
       HTTP_ADDR: ":8080"
-      # The managed PostgreSQL, by Swarm service name on the shared network. pgx
-      # resolves hostnames, so no fixed address is needed here.
+      # The managed PostgreSQL, by service name on the shared network.
       DATABASE_URL: ${DATABASE_URL}
-      # The ledger, by fixed address: its client parses this itself and takes only
-      # IP:port, refusing a hostname with "invalid client cluster address". The
-      # address is assigned in the ledger's own stack.
-      TB_ADDRESSES: ${TB_ADDRESSES:-10.77.0.10:3001}
-      TB_CLUSTER_ID: ${TB_CLUSTER_ID:-0}
       ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Set in the deployment's variables, never in this file. Left empty the API
       # signs with a per-process secret and every restart logs everybody out.
       JWT_SECRET: ${JWT_SECRET}
-      CONFIRMATION_TTL: ${CONFIRMATION_TTL:-2m}
-      # Empty is a supported state: the assistant answers from its rule-based
-      # fallback, drives the same MCP tools and the same confirmation flow, and the
-      # interface says which engine is active.
+      # Migration 00011 replaces the money model and deletes the financial data
+      # it held. The API refuses to boot into it unless this names it; set it to
+      # 00011 for the one deploy that crosses it, after taking a backup, and
+      # remove it afterwards.
+      COREBANK_CONFIRM_WIPE: ${COREBANK_CONFIRM_WIPE:-}
+      # Empty is a supported state: the assistant says it is unavailable and the
+      # interface says why.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
       # The spend ceilings, in dollars, set in the deployment's variables.
       #
       # This deployment is public and registration is open, so the key above is
-      # reachable by anybody who signs up.
-      # The API reserves a call's estimated cost before making it and refuses to start
-      # one that would cross a ceiling — it then answers from the rule-based engine
-      # and the interface says the budget is what ran out, rather than claiming the
-      # assistant is briefly unavailable.
+      # reachable by anybody who signs up. The API reserves a call's estimated
+      # cost before making it and refuses to start one that would cross a
+      # ceiling; the interface then says the budget is what ran out.
       AI_BUDGET_USD: ${AI_BUDGET_USD:-4.00}
       AI_DAILY_BUDGET_USD: ${AI_DAILY_BUDGET_USD:-1.00}
       AI_USER_DAILY_BUDGET_USD: ${AI_USER_DAILY_BUDGET_USD:-0.30}
       AI_MAX_TOOL_TURNS: ${AI_MAX_TOOL_TURNS:-4}
       # Set in the deployment's variables to enable linking an IBKR account.
-      # Empty is a supported state: SetLink refuses with a clear error and
+      # Empty is a supported state: linking refuses with a clear error and
       # everything else keeps working — see config.IBKRConfig.
       IBKR_TOKEN_ENCRYPTION_KEY: ${IBKR_TOKEN_ENCRYPTION_KEY:-}
     # No published ports. Traefik reaches this over the shared network.
     networks:
       - dokploy-network
-      - ledger
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/healthz"]
       interval: 5s
@@ -75,9 +60,4 @@ networks:
   # Dokploy's shared network: how Traefik reaches the API and how the API reaches
   # the managed PostgreSQL.
   dokploy-network:
-    external: true
-  # Created by the ledger's own stack, which is why it is external here — this
-  # deployment joins it rather than defining it, and cannot take it down.
-  ledger:
-    name: corebank-ledger
     external: true

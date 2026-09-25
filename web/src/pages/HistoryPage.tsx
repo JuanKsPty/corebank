@@ -1,13 +1,10 @@
 import { useState } from 'react'
-import { DownloadIcon, ListFilterIcon, SearchIcon } from 'lucide-react'
+import { ListFilterIcon, SearchIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { ApiError } from '@/api/client'
-import * as api from '@/api/endpoints'
-import type { HistoryQuery } from '@/api/endpoints'
-import type { Account, MovementKind } from '@/api/types'
+import type { Account, EntryKind } from '@/api/types'
 import { DateField } from '@/components/DateField'
-import { MovementList } from '@/components/MovementList'
+import { EntryList } from '@/components/EntryList'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -26,16 +23,18 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
-import { accountLabel } from '@/lib/format'
-import { useHistory, useMe } from '@/lib/queries'
-import { downloadBlob } from '@/lib/utils'
+import { accountLabel, numberShort } from '@/lib/format'
+import { useAccounts, useCategories, useEntries } from '@/lib/queries'
 
-const KINDS: Array<{ value: MovementKind | ''; label: string }> = [
+const KINDS: Array<{ value: EntryKind | ''; label: string }> = [
   { value: '', label: 'Todos' },
-  { value: 'deposit', label: 'Depósitos' },
-  { value: 'withdrawal', label: 'Retiros' },
-  { value: 'transfer', label: 'Transferencias' },
-  { value: 'internal_transfer', label: 'Traspasos' },
+  { value: 'expense', label: 'Gastos' },
+  { value: 'income', label: 'Ingresos' },
+  { value: 'transfer', label: 'Transferencias entre tus cuentas' },
+  { value: 'fee', label: 'Comisiones' },
+  { value: 'interest', label: 'Intereses' },
+  { value: 'refund', label: 'Reembolsos' },
+  { value: 'trade', label: 'Compraventa de valores' },
 ]
 
 /**
@@ -52,10 +51,11 @@ const KINDS: Array<{ value: MovementKind | ''; label: string }> = [
  * when what somebody opens it for is the list.
  */
 export function HistoryPage() {
-  const me = useMe()
+  const accountsQuery = useAccounts()
+  const categories = useCategories()
 
   const [accountNumber, setAccountNumber] = useState('')
-  const [kind, setKind] = useState<MovementKind | ''>('')
+  const [kind, setKind] = useState<EntryKind | ''>('')
   const [search, setSearch] = useState('')
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
@@ -65,18 +65,17 @@ export function HistoryPage() {
   const cursor = trail[trail.length - 1]
 
   const query = {
-    accountNumber: accountNumber || undefined,
-    kind: kind || undefined,
+    accountId: accountNumber || undefined,
+    kinds: kind ? [kind] : undefined,
     search: search.trim() || undefined,
-    since: since || undefined,
-    until: until || undefined,
+    from: since || undefined,
+    to: until || undefined,
     limit: 25,
     cursor,
   }
-  const history = useHistory(query)
+  const history = useEntries(query)
 
-  const accounts = me.data?.accounts ?? []
-  const ownedAccounts = new Set(accounts.map((account) => account.account_number))
+  const accounts = accountsQuery.data?.accounts ?? []
 
   /**
    * Any filter change starts the listing again: a cursor from the old filter points into
@@ -160,11 +159,6 @@ export function HistoryPage() {
             onSubmit={() => setTrail([])}
             className="min-w-0 flex-1 md:w-64 md:flex-none"
           />
-
-          {/* Downloads what is on screen, filters and all — not the whole history.
-              A button that ignored the filters would be a different feature wearing
-              this one's label. */}
-          <ExportButton query={query} filtered={filtered} />
         </div>
       </header>
 
@@ -193,9 +187,10 @@ export function HistoryPage() {
       ) : (
         <section className="card">
           <div className="px-4 py-1">
-            <MovementList
-              movements={history.data?.transactions ?? []}
-              ownedAccounts={ownedAccounts}
+            <EntryList
+              entries={history.data?.entries ?? []}
+              accounts={accounts}
+              categories={categories.data?.categories}
               loading={history.isLoading}
               emptyTitle={
                 filtered ? 'Ningún movimiento coincide' : 'Aún no tienes movimientos'
@@ -274,11 +269,11 @@ function Filters({
 }: {
   accounts: Account[]
   accountNumber: string
-  kind: MovementKind | ''
+  kind: EntryKind | ''
   since: string
   until: string
   onAccountNumber: (value: string) => void
-  onKind: (value: MovementKind | '') => void
+  onKind: (value: EntryKind | '') => void
   onSince: (value: string) => void
   onUntil: (value: string) => void
 }) {
@@ -294,8 +289,8 @@ function Filters({
         >
           <NativeSelectOption value="">Todas</NativeSelectOption>
           {accounts.map((account) => (
-            <NativeSelectOption key={account.account_number} value={account.account_number}>
-              {accountLabel(account)} · {account.account_number}
+            <NativeSelectOption key={account.id} value={account.id}>
+              {accountLabel(account)} · {numberShort(account.external_number)}
             </NativeSelectOption>
           ))}
         </NativeSelect>
@@ -307,7 +302,7 @@ function Filters({
           id="filtro-tipo"
           className="w-full"
           value={kind}
-          onChange={(event) => onKind(event.target.value as MovementKind | '')}
+          onChange={(event) => onKind(event.target.value as EntryKind | '')}
         >
           {KINDS.map((option) => (
             <NativeSelectOption key={option.value} value={option.value}>
@@ -364,60 +359,5 @@ function SearchBox({
         </InputGroupAddon>
       </InputGroup>
     </form>
-  )
-}
-
-/**
- * Downloads the filtered history as a CSV file.
- *
- * The whole point is that it exports what the screen is showing. Somebody who filtered
- * to one account and one month wants that month, and a button that quietly handed them
- * everything would be worse than no button — they would not notice until the numbers
- * failed to add up somewhere else.
- *
- * The failure is shown next to the button rather than as a toast. A download that does
- * nothing is indistinguishable from a browser being slow, so silence here reads as a
- * broken feature.
- */
-function ExportButton({ query, filtered }: { query: HistoryQuery; filtered: boolean }) {
-  const [working, setWorking] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
-
-  async function download() {
-    setWorking(true)
-    setFailure(null)
-    try {
-      const { blob, filename } = await api.exportHistoryCSV(query)
-      downloadBlob(blob, filename ?? 'corebank-movimientos.csv')
-    } catch (error) {
-      setFailure(
-        error instanceof ApiError ? error.message : 'No pudimos preparar la descarga.',
-      )
-    } finally {
-      setWorking(false)
-    }
-  }
-
-  return (
-    <div className="relative shrink-0">
-      <Button
-        variant="outline"
-        onClick={() => void download()}
-        disabled={working}
-        title={filtered ? 'Descarga los movimientos que estás viendo' : undefined}
-      >
-        {working ? <Spinner /> : <DownloadIcon aria-hidden="true" />}
-        <span className="hidden sm:inline">{working ? 'Preparando' : 'CSV'}</span>
-        <span className="sr-only sm:hidden">Descargar CSV</span>
-      </Button>
-      {failure && (
-        <p
-          role="alert"
-          className="absolute top-full right-0 z-10 mt-1 w-56 rounded-[5px] border border-danger/40 bg-paper-raised px-2.5 py-1.5 text-[0.75rem] text-danger-text shadow-sm"
-        >
-          {failure}
-        </p>
-      )}
-    </div>
   )
 }

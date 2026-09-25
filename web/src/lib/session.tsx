@@ -23,12 +23,7 @@ interface SessionValue {
   user: User | null
   signIn: (email: string, password: string) => Promise<void>
   signInWithPin: (pin: string) => Promise<void>
-  signUp: (input: {
-    email: string
-    password: string
-    full_name: string
-    account_type?: string
-  }) => Promise<void>
+  signUp: (input: { email: string; password: string; full_name: string }) => Promise<void>
   signOut: () => Promise<void>
 }
 
