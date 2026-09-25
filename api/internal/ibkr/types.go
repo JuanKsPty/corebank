@@ -23,14 +23,22 @@ type sendRequestResponse struct {
 type statementDocument struct {
 	XMLName    xml.Name `xml:"FlexQueryResponse"`
 	Statements []struct {
-		AccountID        string `xml:"accountId,attr"`
-		CashTransactions struct {
+		AccountID string `xml:"accountId,attr"`
+		// The window the report covers and when IBKR produced it. The client
+		// never sends dates, so these are the only record of which period the
+		// query's own saved settings actually returned.
+		FromDate      string `xml:"fromDate,attr"`
+		ToDate        string `xml:"toDate,attr"`
+		WhenGenerated string `xml:"whenGenerated,attr"`
+		// Pointers, so a section the query does not include at all (nil) can
+		// be told apart from one that is present but empty.
+		CashTransactions *struct {
 			Items []cashTransactionXML `xml:"CashTransaction"`
 		} `xml:"CashTransactions"`
-		Trades struct {
+		Trades *struct {
 			Items []tradeXML `xml:"Trade"`
 		} `xml:"Trades"`
-		OpenPositions struct {
+		OpenPositions *struct {
 			Items []openPositionXML `xml:"OpenPosition"`
 		} `xml:"OpenPositions"`
 	} `xml:"FlexStatements>FlexStatement"`

@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +39,11 @@ var (
 
 	// ErrNotLinked means the account has no IBKR Flex Query configured yet.
 	ErrNotLinked = errors.New("investments: account has no IBKR link configured")
+
+	// ErrAccountMismatch means the Flex Query returned a report for a
+	// different IBKR account than the one this corebank account is linked
+	// to. Applying it would file someone else's cash and holdings here.
+	ErrAccountMismatch = errors.New("investments: statement belongs to a different IBKR account")
 )
 
 // Service manages IBKR links and the portfolio data synced from them.
@@ -110,11 +116,34 @@ func (s *Service) GetLinkStatus(ctx context.Context, userID uuid.UUID, accountNu
 // cron job's log line — can tell a healthy no-op run from one that actually
 // moved money.
 type SyncResult struct {
-	CashMovementsPosted  int
+	CashMovementsPosted int
+	// CashMovementsSkipped counts rows already recorded on this account —
+	// the only kind of skip that is harmless.
 	CashMovementsSkipped int
-	TradesRecorded       int
-	TradesSkipped        int
-	Positions            int
+	// CashMovementsFailedBefore counts rows whose idempotency key points at
+	// a movement that never completed (typically rejected for insufficient
+	// funds on an earlier sync). They are skipped on every sync after that
+	// first failure, so the balance silently leaves them out; they are
+	// reported rather than hidden inside the skipped count.
+	CashMovementsFailedBefore int
+	// CashMovementsOtherAccount counts rows whose key was claimed by a
+	// movement on a different corebank account — the same IBKR account
+	// linked twice.
+	CashMovementsOtherAccount int
+	TradesRecorded            int
+	TradesSkipped             int
+	Positions                 int
+
+	// PeriodFrom and PeriodTo are the window IBKR's report covers, and
+	// GeneratedAt when IBKR produced it; zero when the report omits them.
+	PeriodFrom  time.Time
+	PeriodTo    time.Time
+	GeneratedAt time.Time
+	// MissingSections lists the report sections the Flex Query does not
+	// include: "cash_transactions", "trades", "open_positions".
+	MissingSections []string
+	// Warnings are human-readable, in Spanish, for the account page.
+	Warnings []string
 }
 
 // Sync fetches the linked account's Flex Query and applies it: new cash
@@ -128,7 +157,7 @@ func (s *Service) Sync(ctx context.Context, userID uuid.UUID, accountNumber stri
 		return SyncResult{}, err
 	}
 
-	client, err := s.clientFor(ctx, account)
+	link, client, err := s.clientFor(ctx, account)
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -144,6 +173,10 @@ func (s *Service) Sync(ctx context.Context, userID uuid.UUID, accountNumber stri
 		s.recordOutcome(ctx, account.ID, err)
 		return SyncResult{}, err
 	}
+	if err := checkStatementAccount(link.IBKRAccountID, stmt.AccountID); err != nil {
+		s.recordOutcome(ctx, account.ID, err)
+		return SyncResult{}, err
+	}
 
 	result, err := s.apply(ctx, userID, account, stmt)
 	if err != nil {
@@ -151,10 +184,16 @@ func (s *Service) Sync(ctx context.Context, userID uuid.UUID, accountNumber stri
 		return SyncResult{}, err
 	}
 
+	describeStatement(&result, stmt, s.now())
+
 	s.recordOutcome(ctx, account.ID, nil)
 	logging.FromContext(ctx).Info("ibkr sync completed", "account_number", account.Number,
-		"cash_posted", result.CashMovementsPosted, "trades_recorded", result.TradesRecorded,
-		"positions", result.Positions)
+		"period_from", civilDate(result.PeriodFrom), "period_to", civilDate(result.PeriodTo),
+		"cash_posted", result.CashMovementsPosted, "cash_skipped", result.CashMovementsSkipped,
+		"cash_failed_before", result.CashMovementsFailedBefore,
+		"cash_other_account", result.CashMovementsOtherAccount,
+		"trades_recorded", result.TradesRecorded, "positions", result.Positions,
+		"missing_sections", result.MissingSections, "warnings", len(result.Warnings))
 	return result, nil
 }
 
@@ -185,19 +224,110 @@ func (s *Service) SyncAll(ctx context.Context) (results map[string]SyncResult, f
 	return results, failures
 }
 
-func (s *Service) clientFor(ctx context.Context, account store.Account) (*ibkr.Client, error) {
+func (s *Service) clientFor(ctx context.Context, account store.Account) (store.IBKRLink, *ibkr.Client, error) {
 	link, err := s.db.Q().IBKRLinkByAccountID(ctx, account.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, fmt.Errorf("%w: %s", ErrNotLinked, account.Number)
+			return store.IBKRLink{}, nil, fmt.Errorf("%w: %s", ErrNotLinked, account.Number)
 		}
-		return nil, err
+		return store.IBKRLink{}, nil, err
 	}
 	token, err := decryptToken(s.encryptionKey, link.FlexTokenCiphertext)
 	if err != nil {
-		return nil, err
+		return store.IBKRLink{}, nil, err
 	}
-	return ibkr.New(token, link.FlexQueryID), nil
+	return link, ibkr.New(token, link.FlexQueryID), nil
+}
+
+// checkStatementAccount refuses a report for a different IBKR account than
+// the linked one. Either side being empty is let through: an older link may
+// predate the field, and a report may omit the attribute.
+func checkStatementAccount(linked, reported string) error {
+	linked, reported = strings.TrimSpace(linked), strings.TrimSpace(reported)
+	if linked == "" || reported == "" || strings.EqualFold(linked, reported) {
+		return nil
+	}
+	return fmt.Errorf("%w: the Flex Query returned %s, but this account is linked to %s",
+		ErrAccountMismatch, reported, linked)
+}
+
+// describeStatement fills in what the report itself says about its period and
+// sections, and turns the ways a sync can succeed while bringing nothing new
+// into warnings the account page can show.
+func describeStatement(result *SyncResult, stmt ibkr.Statement, now time.Time) {
+	result.PeriodFrom, result.PeriodTo, result.GeneratedAt = stmt.FromDate, stmt.ToDate, stmt.GeneratedAt
+
+	if !stmt.HasCashTransactions {
+		result.MissingSections = append(result.MissingSections, "cash_transactions")
+	}
+	if !stmt.HasTrades {
+		result.MissingSections = append(result.MissingSections, "trades")
+	}
+	if !stmt.HasPositions {
+		result.MissingSections = append(result.MissingSections, "open_positions")
+	}
+	if len(result.MissingSections) > 0 {
+		result.Warnings = append(result.Warnings, "La Flex Query no incluye: "+
+			strings.Join(ibkrSectionNames(result.MissingSections), ", ")+
+			". Agrégalas en IBKR para que esos datos se actualicen.")
+	}
+	if !stmt.HasPositions {
+		result.Warnings = append(result.Warnings,
+			"Se conservaron las posiciones anteriores porque el reporte no trae la sección de posiciones abiertas.")
+	}
+
+	if !stmt.ToDate.IsZero() {
+		if expected := previousBusinessDay(now); stmt.ToDate.Before(expected) {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"Los datos de IBKR llegan solo hasta el %s. Si esperabas movimientos más recientes, revisa que el período de la Flex Query sea móvil (por ejemplo, \"Last 365 Calendar Days\") y no un rango fijo. IBKR publica cada día al día siguiente.",
+				civilDate(stmt.ToDate)))
+		}
+	}
+
+	if result.CashMovementsFailedBefore > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"%d movimiento(s) de efectivo fallaron en una sincronización anterior y no se vuelven a intentar, así que el efectivo no los incluye.",
+			result.CashMovementsFailedBefore))
+	}
+	if result.CashMovementsOtherAccount > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"%d movimiento(s) de efectivo ya están registrados en otra cuenta de corebank vinculada a la misma cuenta de IBKR.",
+			result.CashMovementsOtherAccount))
+	}
+}
+
+func ibkrSectionNames(sections []string) []string {
+	names := map[string]string{
+		"cash_transactions": "Cash Transactions",
+		"trades":            "Trades",
+		"open_positions":    "Open Positions",
+	}
+	out := make([]string, len(sections))
+	for i, s := range sections {
+		out[i] = names[s]
+	}
+	return out
+}
+
+// previousBusinessDay is the most recent weekday strictly before now's date:
+// the latest day an IBKR report generated today can cover, since IBKR
+// publishes a day's activity only after its overnight processing. Market
+// holidays are not modelled, so the warning it drives is worded as a hint.
+func previousBusinessDay(now time.Time) time.Time {
+	now = now.UTC()
+	d := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1)
+	for d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+		d = d.AddDate(0, 0, -1)
+	}
+	return d
+}
+
+// civilDate formats a date-only value as YYYY-MM-DD, or "" for the zero time.
+func civilDate(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.DateOnly)
 }
 
 func (s *Service) recordOutcome(ctx context.Context, accountID uuid.UUID, cause error) {
@@ -226,14 +356,19 @@ func (s *Service) apply(ctx context.Context, userID uuid.UUID, account store.Acc
 		if ct.ExternalRef == "" {
 			refless++
 		}
-		posted, err := s.postCashTransaction(ctx, userID, account, ct, refless)
+		outcome, err := s.postCashTransaction(ctx, userID, account, ct, refless)
 		if err != nil {
 			return SyncResult{}, fmt.Errorf("cash transaction %s: %w", ct.ExternalRef, err)
 		}
-		if posted {
+		switch outcome {
+		case cashPosted:
 			result.CashMovementsPosted++
-		} else {
+		case cashAlreadyRecorded:
 			result.CashMovementsSkipped++
+		case cashFailedBefore:
+			result.CashMovementsFailedBefore++
+		case cashOnOtherAccount:
+			result.CashMovementsOtherAccount++
 		}
 	}
 
@@ -264,6 +399,11 @@ func (s *Service) apply(ctx context.Context, userID uuid.UUID, account store.Acc
 			}
 		}
 
+		if !stmt.HasPositions {
+			// A query that never asked for positions says nothing about
+			// them; replacing the snapshot with it would wipe every holding.
+			return nil
+		}
 		if err := q.DeletePositionsByAccount(ctx, account.ID); err != nil {
 			return err
 		}
@@ -307,9 +447,9 @@ func (s *Service) apply(ctx context.Context, userID uuid.UUID, account store.Acc
 // that does not: without it, two distinct SUMMARY-only rows with no
 // transactionID at all (same type, same day) would collide onto the same
 // key and the second would be wrongly skipped as a duplicate of the first.
-func (s *Service) postCashTransaction(ctx context.Context, userID uuid.UUID, account store.Account, ct ibkr.CashTransaction, reflessIndex int) (posted bool, err error) {
+func (s *Service) postCashTransaction(ctx context.Context, userID uuid.UUID, account store.Account, ct ibkr.CashTransaction, reflessIndex int) (outcome cashOutcome, err error) {
 	if ct.Amount == 0 {
-		return false, nil
+		return cashAlreadyRecorded, nil
 	}
 
 	ref := ct.ExternalRef
@@ -317,10 +457,10 @@ func (s *Service) postCashTransaction(ctx context.Context, userID uuid.UUID, acc
 		ref = fmt.Sprintf("noref-%d", reflessIndex)
 	}
 	idempotencyKey := "ibkr_cash:" + ref
-	if _, err := s.db.Q().FindIdempotent(ctx, userID, idempotencyKey); err == nil {
-		return false, nil
+	if txID, err := s.db.Q().FindIdempotent(ctx, userID, idempotencyKey); err == nil {
+		return s.classifyExisting(ctx, account, txID)
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return false, err
+		return 0, err
 	}
 
 	description := ct.Type
@@ -342,9 +482,36 @@ func (s *Service) postCashTransaction(ctx context.Context, userID uuid.UUID, acc
 		_, err = s.transactions.Withdraw(ctx, userID, req)
 	}
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	return true, nil
+	return cashPosted, nil
+}
+
+// cashOutcome is what happened to one IBKR cash row on this sync.
+type cashOutcome int
+
+const (
+	cashPosted cashOutcome = iota + 1
+	cashAlreadyRecorded
+	cashFailedBefore
+	cashOnOtherAccount
+)
+
+// classifyExisting explains why a cash row whose idempotency key is already
+// claimed is being skipped, by looking at the movement the key points to.
+// Only a completed movement on this same account is a genuine duplicate.
+func (s *Service) classifyExisting(ctx context.Context, account store.Account, txID uuid.UUID) (cashOutcome, error) {
+	tx, err := s.db.Q().TransactionByID(ctx, txID)
+	if err != nil {
+		return 0, err
+	}
+	if tx.FromAccount != account.Number && tx.ToAccount != account.Number {
+		return cashOnOtherAccount, nil
+	}
+	if tx.Status != store.StatusCompleted {
+		return cashFailedBefore, nil
+	}
+	return cashAlreadyRecorded, nil
 }
 
 // Position is one holding as of the last sync.

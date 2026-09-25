@@ -229,3 +229,62 @@ func TestLooksLikeStatement(t *testing.T) {
 		t.Error("the small envelope was mistaken for a statement")
 	}
 }
+
+func TestParseReadsThePeriodAndWhichSectionsArePresent(t *testing.T) {
+	stmt, err := Parse([]byte(sampleStatement))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if want := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC); !stmt.FromDate.Equal(want) {
+		t.Errorf("FromDate = %v, want %v", stmt.FromDate, want)
+	}
+	if want := time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC); !stmt.ToDate.Equal(want) {
+		t.Errorf("ToDate = %v, want %v", stmt.ToDate, want)
+	}
+	if !stmt.GeneratedAt.IsZero() {
+		t.Errorf("GeneratedAt = %v, want zero: the fixture carries no whenGenerated", stmt.GeneratedAt)
+	}
+	if !stmt.HasCashTransactions || !stmt.HasTrades || !stmt.HasPositions {
+		t.Errorf("sections present = cash %v, trades %v, positions %v; want all true",
+			stmt.HasCashTransactions, stmt.HasTrades, stmt.HasPositions)
+	}
+}
+
+func TestParseTellsAMissingSectionFromAnEmptyOne(t *testing.T) {
+	// Trades is present but empty; OpenPositions and CashTransactions are
+	// not requested at all. Only the missing ones must report false, since a
+	// missing positions section must never be read as "no holdings".
+	const doc = `<FlexQueryResponse><FlexStatements count="1">
+		<FlexStatement accountId="U1" fromDate="20260901" toDate="20260923" whenGenerated="20260924;061500">
+			<Trades></Trades>
+		</FlexStatement>
+	</FlexStatements></FlexQueryResponse>`
+
+	stmt, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if stmt.HasCashTransactions || stmt.HasPositions {
+		t.Errorf("HasCashTransactions = %v, HasPositions = %v; want both false", stmt.HasCashTransactions, stmt.HasPositions)
+	}
+	if !stmt.HasTrades {
+		t.Error("HasTrades = false, want true: an empty section is still present")
+	}
+	if want := time.Date(2026, 9, 24, 6, 15, 0, 0, time.UTC); !stmt.GeneratedAt.Equal(want) {
+		t.Errorf("GeneratedAt = %v, want %v", stmt.GeneratedAt, want)
+	}
+}
+
+func TestParseIgnoresAMalformedPeriod(t *testing.T) {
+	const doc = `<FlexQueryResponse><FlexStatements count="1">
+		<FlexStatement accountId="U1" fromDate="01/09/2026" toDate=""></FlexStatement>
+	</FlexStatements></FlexQueryResponse>`
+
+	stmt, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("Parse() error = %v, want nil: the period describes the report, it must not fail the sync", err)
+	}
+	if !stmt.FromDate.IsZero() || !stmt.ToDate.IsZero() {
+		t.Errorf("FromDate = %v, ToDate = %v; want both zero", stmt.FromDate, stmt.ToDate)
+	}
+}

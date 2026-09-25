@@ -51,6 +51,18 @@ export function formatDate(iso: string): string {
   return dateFormat.format(new Date(iso))
 }
 
+/**
+ * "08 sept 2026" for a civil date ("2026-09-08") that has no time and no zone.
+ *
+ * `new Date("2026-09-08")` is UTC midnight, which a Panamanian browser renders as
+ * the 7th; building the date from its parts in local time keeps the day the
+ * source printed.
+ */
+export function formatCivilDate(ymd: string): string {
+  const [year = 0, month = 1, day = 1] = ymd.split('-').map(Number)
+  return dateFormat.format(new Date(year, month - 1, day))
+}
+
 export function formatDayMonth(iso: string): string {
   return dayMonthFormat.format(new Date(iso))
 }
