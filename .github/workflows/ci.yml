@@ -8,14 +8,18 @@
 # by construction rather than by a pipeline remembering to check first — and there
 # is one less credential to leak.
 #
-# Nothing here needs a database or a ledger. The one test that wants TigerBeetle
-# skips itself when it cannot reach one, so the whole suite runs on a bare runner.
+# The api job runs against a real PostgreSQL service container. Tests that need a
+# database get their own throwaway one from internal/storetest, and with CI=true a
+# missing database fails the run instead of skipping those tests. The one test
+# that wants TigerBeetle still skips itself when it cannot reach one.
 
 name: ci
 
+# Every pull request, not only those based on main: in a stack of pull requests
+# each one is based on the branch below it, and a filter on main would leave
+# every PR above the bottom one unchecked.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -31,6 +35,19 @@ jobs:
   api:
     name: api
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        # The same major version the deployment runs.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v5
 
@@ -78,6 +95,7 @@ jobs:
         working-directory: api
         env:
           CGO_ENABLED: 1
+          TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/postgres?sslmode=disable
         run: go test -race ./...
 
   web:
