@@ -32,6 +32,7 @@ export const keys = {
   security: ['security'] as const,
   categories: ['categories'] as const,
   rules: ['rules'] as const,
+  proposals: ['proposals'] as const,
   transfers: ['transfer-suggestions'] as const,
 }
 
@@ -295,6 +296,27 @@ export function useDeleteRule() {
   return useMutation({
     mutationFn: (id: string) => api.deleteRule(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.rules }),
+  })
+}
+
+// --- proposals -----------------------------------------------------------------
+
+export function useProposals() {
+  return useQuery({ queryKey: keys.proposals, queryFn: api.fetchProposals })
+}
+
+/** Applies or discards a proposal. Applying can change categories, rules and checks. */
+export function useDecideProposal() {
+  const queryClient = useQueryClient()
+  const invalidate = useMoneyInvalidation()
+  return useMutation({
+    mutationFn: ({ id, apply }: { id: string; apply: boolean }) =>
+      apply ? api.applyProposal(id) : api.rejectProposal(id),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.proposals })
+      void queryClient.invalidateQueries({ queryKey: keys.rules })
+      void invalidate()
+    },
   })
 }
 

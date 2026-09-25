@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -84,6 +85,18 @@ type Event struct {
 	// Provider is set on EventDone: which engine actually answered, which can have
 	// changed during this very exchange.
 	Provider *ProviderState
+	// Proposal is set on EventProposal: a change the assistant proposed, for the
+	// owner to apply or discard.
+	Proposal *Proposal
+}
+
+// Proposal is what the interface needs to render a proposal's card. It comes
+// from the tool's own structured result, which the proposals package wrote,
+// never from the model's prose.
+type Proposal struct {
+	ID      string `json:"proposal_id"`
+	Kind    string `json:"kind"`
+	Summary string `json:"summary"`
 }
 
 type EventKind string
@@ -92,6 +105,7 @@ const (
 	EventMessage    EventKind = "message"
 	EventToolCall   EventKind = "tool_call"
 	EventToolResult EventKind = "tool_result"
+	EventProposal   EventKind = "proposal"
 	EventError      EventKind = "error"
 	EventDone       EventKind = "done"
 )
@@ -216,6 +230,9 @@ func (s *Service) runTools(ctx context.Context, session *mcpserver.Session, call
 			"arguments", string(call.Arguments))
 
 		emit(Event{Kind: EventToolResult, Tool: call.Name, Failed: result.IsError})
+		if p := proposalOf(call.Name, result); p != nil {
+			emit(Event{Kind: EventProposal, Tool: call.Name, Proposal: p})
+		}
 
 		turn.Results = append(turn.Results, llm.ToolResult{
 			CallID:  call.ID,
@@ -224,6 +241,18 @@ func (s *Service) runTools(ctx context.Context, session *mcpserver.Session, call
 		})
 	}
 	return turn, nil
+}
+
+// proposalOf reads the proposal a propose_* tool stored, if it stored one.
+func proposalOf(tool string, result mcpserver.Result) *Proposal {
+	if result.IsError || !strings.HasPrefix(tool, "propose_") || len(result.Structured) == 0 {
+		return nil
+	}
+	var p Proposal
+	if err := json.Unmarshal(result.Structured, &p); err != nil || p.ID == "" {
+		return nil
+	}
+	return &p
 }
 
 // History returns the conversation for the interface to render on load.

@@ -17,6 +17,8 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/civil"
 	"github.com/JuanKsPty/corebank/api/internal/imports"
 	"github.com/JuanKsPty/corebank/api/internal/money"
+	"github.com/JuanKsPty/corebank/api/internal/movements"
+	"github.com/JuanKsPty/corebank/api/internal/proposals"
 	"github.com/JuanKsPty/corebank/api/internal/reports"
 	"github.com/JuanKsPty/corebank/api/internal/rules"
 	"github.com/JuanKsPty/corebank/api/internal/store"
@@ -446,5 +448,77 @@ func TestFlowCountsIncomeAndSpendingButNeverTransfers(t *testing.T) {
 	}
 	if points[0].Out != 1430 || points[0].In != 0 {
 		t.Errorf("January = in %s, out %s; want in 0.00, out 14.30 (the payment is a transfer)", points[0].In, points[0].Out)
+	}
+}
+
+func TestAProposalChangesNothingUntilTheOwnerAppliesIt(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.importFile(t, "tarjeta.txt", []byte(cardFile))
+	cats := categories.NewService(e.db)
+	moves := movements.NewService(e.db, cats)
+	svc := proposals.NewService(e.db, e.accounts, cats, moves, rules.NewService(e.db, cats), transfers.NewService(e.db))
+	compras, _, _ := cats.FindByName(ctx, e.user, "Compras")
+
+	entries, _ := e.db.Q().Entries(ctx, store.EntryFilter{UserID: e.user, Search: "FARMACIA"})
+	pharmacy := entries[0]
+	p, err := svc.Propose(ctx, e.user, proposals.Recategorize{EntryID: pharmacy.ID, CategoryID: &compras.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.Summary, "Compras") || p.Status != "pending" {
+		t.Errorf("proposal = %+v", p)
+	}
+	unchanged, _ := moves.Get(ctx, e.user, pharmacy.ID)
+	if unchanged.CategoryID != nil && *unchanged.CategoryID == compras.ID {
+		t.Fatal("proposing changed the movement")
+	}
+
+	// Another user cannot apply it, and learns nothing about it.
+	other, err := e.db.Q().CreateUser(ctx, store.User{ID: uuid.New(), Email: "x@example.com", PasswordHash: "x", FullName: "X"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Apply(ctx, other.ID, p.ID); !errors.Is(err, proposals.ErrNotFound) {
+		t.Errorf("another user's apply = %v, want ErrNotFound", err)
+	}
+
+	if _, err := svc.Apply(ctx, e.user, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	applied, _ := moves.Get(ctx, e.user, pharmacy.ID)
+	if applied.CategoryID == nil || *applied.CategoryID != compras.ID || *applied.CategorySource != "assistant" {
+		t.Errorf("after apply: category %v by %v", applied.CategoryID, applied.CategorySource)
+	}
+	if _, err := svc.Apply(ctx, e.user, p.ID); !errors.Is(err, proposals.ErrDecided) {
+		t.Errorf("second apply = %v, want ErrDecided", err)
+	}
+
+	// A category the owner chose by hand is not the assistant's to change.
+	salud, _, _ := cats.FindByName(ctx, e.user, "Salud")
+	if _, err := moves.SetCategory(ctx, e.user, pharmacy.ID, &salud.ID, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Propose(ctx, e.user, proposals.Recategorize{EntryID: pharmacy.ID, CategoryID: &compras.ID}); !errors.Is(err, proposals.ErrInvalid) {
+		t.Errorf("proposing over a hand-picked category = %v, want ErrInvalid", err)
+	}
+
+	// A rejected proposal cannot be applied afterwards.
+	card := pharmacy.AccountID
+	cp, err := svc.Propose(ctx, e.user, proposals.Checkpoint{AccountID: card, AsOf: civil.Date{Year: 2026, Month: 1, Day: 14}, BalanceCents: -10000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cp.Summary, "adeudado") {
+		t.Errorf("a card's checkpoint summary = %q, want it to say what is owed", cp.Summary)
+	}
+	if _, err := svc.Reject(ctx, e.user, cp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Apply(ctx, e.user, cp.ID); !errors.Is(err, proposals.ErrDecided) {
+		t.Errorf("apply after reject = %v, want ErrDecided", err)
+	}
+	if pending, _ := svc.Pending(ctx, e.user); len(pending) != 0 {
+		t.Errorf("pending = %d, want 0", len(pending))
 	}
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/mcpserver"
 	"github.com/JuanKsPty/corebank/api/internal/movements"
+	"github.com/JuanKsPty/corebank/api/internal/proposals"
 	"github.com/JuanKsPty/corebank/api/internal/reports"
 	"github.com/JuanKsPty/corebank/api/internal/rules"
 	"github.com/JuanKsPty/corebank/api/internal/server"
@@ -94,9 +95,19 @@ func run() error {
 	// Without an API key the assistant reports itself unavailable, and the
 	// interface says why.
 	provider := selectProvider(db, cfg.AI, logger)
+	reportsSvc := reports.NewService(db)
+	transfersSvc := transfers.NewService(db)
+	rulesSvc := rules.NewService(db, categoriesSvc)
+	proposalsSvc := proposals.NewService(db, accountsSvc, categoriesSvc, movementsSvc, rulesSvc, transfersSvc)
 	chatSvc := chat.NewService(db, mcpserver.Deps{
-		Accounts:  accountsSvc,
-		Movements: movementsSvc,
+		Accounts:    accountsSvc,
+		Movements:   movementsSvc,
+		Categories:  categoriesSvc,
+		Reports:     reportsSvc,
+		Transfers:   transfersSvc,
+		Investments: investmentsSvc,
+		Rules:       rulesSvc,
+		Proposals:   proposalsSvc,
 	}, provider, cfg.AI.MaxToolTurns)
 
 	loginLimiter := httpx.NewRateLimiter(cfg.Auth.LoginRateLimit)
@@ -120,9 +131,10 @@ func run() error {
 		Categories:  categories.NewHandler(categoriesSvc),
 		Investments: investments.NewHandler(investmentsSvc),
 		Imports:     imports.NewHandler(importsSvc, db),
-		Reports:     reports.NewHandler(reports.NewService(db)),
-		Transfers:   transfers.NewHandler(transfers.NewService(db)),
-		Rules:       rules.NewHandler(rules.NewService(db, categoriesSvc)),
+		Reports:     reports.NewHandler(reportsSvc),
+		Transfers:   transfers.NewHandler(transfersSvc),
+		Rules:       rules.NewHandler(rulesSvc),
+		Proposals:   proposals.NewHandler(proposalsSvc),
 		Chat:        chat.NewHandler(chatSvc, authSvc, chatLimiter),
 	})
 

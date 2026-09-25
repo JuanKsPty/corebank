@@ -184,15 +184,17 @@ type eventPayload struct {
 	Code     string        `json:"code,omitempty"`
 	Message  string        `json:"message,omitempty"`
 	Provider *providerView `json:"provider,omitempty"`
+	Proposal *Proposal     `json:"proposal,omitempty"`
 }
 
 func writeEvent(w http.ResponseWriter, event Event) error {
 	payload := eventPayload{
-		Text:    event.Text,
-		Tool:    event.Tool,
-		Failed:  event.Failed,
-		Code:    event.Code,
-		Message: event.Message,
+		Text:     event.Text,
+		Tool:     event.Tool,
+		Failed:   event.Failed,
+		Code:     event.Code,
+		Message:  event.Message,
+		Proposal: event.Proposal,
 	}
 	if event.Provider != nil {
 		view := toProviderView(*event.Provider)

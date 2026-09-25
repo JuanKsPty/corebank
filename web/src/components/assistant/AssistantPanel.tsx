@@ -32,6 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { TOOL_LABELS, useAssistant, type Turn } from './AssistantProvider'
+import { PendingProposals } from './ProposalCard'
 
 /**
  * The assistant's transcript, composer and all.
@@ -118,6 +119,8 @@ export function AssistantPanel({
               )}
 
               {streaming && <Working tool={activeTool} />}
+
+              <PendingProposals />
 
               {failure && (
                 <div
