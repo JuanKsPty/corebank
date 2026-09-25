@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/JuanKsPty/corebank/api/internal/ledger"
 	"github.com/JuanKsPty/corebank/api/internal/money"
 	"github.com/JuanKsPty/corebank/api/internal/store"
 )
@@ -122,50 +121,8 @@ func asAPIError(err error) *Error {
 	case errors.Is(err, store.ErrConflict):
 		return Conflict("conflict", "El recurso ya existe o entra en conflicto con otro.").WithCause(err)
 
-	// --- ledger: money ---
-	case errors.Is(err, ledger.ErrInsufficientFunds):
-		return Unprocessable("insufficient_funds",
-			"La cuenta no tiene fondos suficientes para esta operación.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrSourceNotFound):
-		return NotFound("source_account_not_found", "La cuenta de origen no existe.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrDestinationNotFound):
-		return NotFound("destination_account_not_found", "La cuenta de destino no existe.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrSameAccount):
-		return BadRequest("same_account",
-			"La cuenta de origen y la de destino deben ser distintas.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrAmountNotPositive), errors.Is(err, money.ErrNotPositive):
+	case errors.Is(err, money.ErrNotPositive):
 		return BadRequest("amount_not_positive", "El monto debe ser mayor que cero.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrInvalidAccountNumber):
-		return BadRequest("invalid_account_number", "El número de cuenta no es válido.").WithCause(err)
-
-	// --- ledger: two-phase confirmation ---
-	case errors.Is(err, ledger.ErrHoldNotFound):
-		return NotFound("confirmation_not_found",
-			"Esta confirmación ya no existe.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrHoldExpired):
-		return Conflict("confirmation_expired",
-			"La confirmación expiró y los fondos se liberaron. Vuelve a intentarlo.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrHoldAlreadySettled):
-		return Conflict("already_confirmed", "Esta operación ya fue confirmada.").WithCause(err)
-
-	case errors.Is(err, ledger.ErrHoldAlreadyVoided):
-		return Conflict("already_cancelled", "Esta operación ya fue cancelada.").WithCause(err)
-
-	// --- ledger: idempotency ---
-	// A replayed movement is not a failure; the caller's earlier attempt
-	// succeeded. Handlers that can distinguish it return the original result
-	// instead, so reaching here means a path that cannot, and reporting the
-	// operation as done is still the truthful answer.
-	case errors.Is(err, ledger.ErrPreviouslyFailed):
-		return Conflict("movement_previously_failed",
-			"Esta operación ya había fallado antes y no puede reintentarse con el mismo identificador.").WithCause(err)
 
 	// --- money parsing ---
 	case errors.Is(err, money.ErrTooPrecise):

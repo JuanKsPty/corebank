@@ -17,7 +17,7 @@
  * from the woff2 rather than assumed.
  */
 
-export type ColumnKey = 'day' | 'concept' | 'counterparty' | 'debit' | 'credit'
+export type ColumnKey = 'day' | 'concept' | 'account' | 'debit' | 'credit'
 
 export interface Column {
   key: ColumnKey
@@ -66,8 +66,8 @@ export const COLUMNS: Column[] = [
     // column where the extra width buys something, namely not truncating it.
   },
   {
-    key: 'counterparty',
-    label: 'Contraparte',
+    key: 'account',
+    label: 'Cuenta',
     // 7rem = 112px, less 24px = 88px, holding "···1300" — 7 glyphs ≈ 50px, so 38px
     // of slack. At 3xl the column widens to 11rem (152px of content) and the cell
     // shows the whole 19-character number instead, which is the one piece of

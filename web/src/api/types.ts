@@ -16,25 +16,83 @@ export interface Amount {
   currency: string
 }
 
-export type AccountType = 'savings' | 'checking' | 'investment'
+export type AccountClass = 'asset' | 'liability'
+export type AccountType = 'checking' | 'savings' | 'credit_card' | 'brokerage'
+export type Institution = 'banco_general' | 'bac' | 'ibkr'
 
+/**
+ * A real-world account: a bank account, a card or a brokerage account, keyed the
+ * way its institution keys it.
+ */
 export interface Account {
   id: string
-  account_number: string
-  account_type: AccountType
-  /**
-   * What the customer calls this account, or empty if they have not named it.
-   * Read it through `accountLabel`, which falls back to the type in one place.
-   */
-  alias: string
-  /** What can be spent: posted minus anything held by an unconfirmed movement. */
-  available: Amount
-  /** The settled balance, before reservations are deducted. */
-  posted: Amount
-  /** Funds reserved by a movement awaiting confirmation. */
-  held: Amount
+  class: AccountClass
+  type: AccountType
+  institution: Institution
+  /** The number as the bank prints it, e.g. "04-98-97-958835-1" or "**** 1111". */
+  external_number: string
+  display_name: string
+  /** What the owner calls it, when they have named it. Read through `accountLabel`. */
+  alias?: string
   currency: string
-  created_at: string
+  /**
+   * Signed from the owner's point of view: a card that owes $14.30 has -14.30.
+   * Only meaningful when `anchored`.
+   */
+  balance: Amount
+  /** A card's balance as the bank prints it: a positive amount owed. */
+  owed?: Amount
+  /**
+   * Whether a stated balance — a statement's opening, IBKR's cash report, or one
+   * the owner entered — fixes where the account started. Without one the balance
+   * is only the sum of the imported movements.
+   */
+  anchored: boolean
+  /** A brokerage account's positions, at market value. */
+  holdings?: Amount
+  /** The latest stated balance against the computed one. */
+  drift?: Drift
+  movements: number
+  last_day: string | null
+}
+
+/** How far a stated balance is from what the movements add up to. */
+export interface Drift {
+  as_of: string
+  stated: Amount
+  computed: Amount
+  /** stated − computed. Zero means the account matches the bank. */
+  difference: Amount
+  source: 'statement_opening' | 'statement_closing' | 'broker' | 'manual'
+}
+
+/** Assets minus debts plus investments. */
+export interface NetWorth {
+  assets: Amount
+  owed: Amount
+  holdings: Amount
+  total: Amount
+  /** True while some account with movements has no starting balance. */
+  incomplete: boolean
+  unanchored: number
+}
+
+export interface AccountList {
+  accounts: Account[]
+  net_worth: NetWorth
+}
+
+/** A balance somebody stated. */
+export interface Checkpoint {
+  id: string
+  as_of: string
+  balance: Amount
+  source: Drift['source']
+  /** The anchor the opening balance is derived from. */
+  pinned: boolean
+  due_on?: string
+  minimum_payment?: Amount
+  note?: string
 }
 
 export interface User {
@@ -55,7 +113,7 @@ export interface Session {
 export interface Me {
   user: User
   accounts: Account[]
-  total_available: Amount
+  net_worth: NetWorth
 }
 
 /** Whether this browser can skip straight to a PIN, and whose it is. */
@@ -70,58 +128,41 @@ export interface SecurityStatus {
   device_enabled: boolean
 }
 
-export type MovementKind = 'deposit' | 'withdrawal' | 'transfer' | 'internal_transfer'
+/**
+ * What a movement counts as. A transfer between the owner's own accounts and a
+ * trade never count as spending or income.
+ */
+export type EntryKind =
+  'income' | 'expense' | 'refund' | 'fee' | 'interest' | 'transfer' | 'trade'
 
-export type MovementStatus = 'pending' | 'completed' | 'failed' | 'voided' | 'expired'
-
-export interface Transaction {
+/** One line a statement or IBKR printed. */
+export interface Entry {
   id: string
-  kind: MovementKind
-  status: MovementStatus
+  account_id: string
+  /** The day the bank printed (YYYY-MM-DD), with no time zone to shift it. */
+  booked_on: string
+  posted_on?: string
+  booked_at?: string
+  /** Signed from the owner's point of view: negative is money leaving. */
   amount: Amount
-  /** "EXTERNAL" means the counterparty is outside this bank. */
-  from_account?: string
-  to_account?: string
+  kind: EntryKind
+  /** What the importer decided, when the owner or a rule overrode it. */
+  imported_kind: EntryKind
   description: string
-  /** Whether the customer did this themselves, the assistant did it for them,
-   * corebank posted it on its own initiative from an IBKR or bank-import
-   * sync, or it is a "sincerar saldo" correction. */
-  origin: 'api' | 'chat' | 'ibkr_sync' | 'bank_import' | 'reconcile'
-  failure_code?: string
-  occurred_at: string
+  bank_ref?: string
+  bank_category?: string
+  /** The balance the bank printed after this line. */
+  bank_balance?: Amount
+  category_id?: string
+  category_source?: 'rule' | 'user' | 'assistant'
+  note?: string
 }
 
-export interface TransactionPage {
-  transactions: Transaction[]
+export interface EntryPage {
+  entries: Entry[]
   /** Opaque; pass it back verbatim to get the next page. */
   next_cursor?: string
   has_more: boolean
-}
-
-export interface FlowPoint {
-  day: string
-  in: Amount
-  out: Amount
-}
-
-/** The daily series together with the period it actually covers. */
-export interface Flow {
-  points: FlowPoint[]
-  from: string
-  to: string
-  /**
-   * False when the window had to move back to the customer's most recent activity —
-   * which is what an account whose history ends earlier produces.
-   * The chart labels the period rather than claiming "last 30 days".
-   */
-  recent: boolean
-}
-
-export interface Dashboard {
-  accounts: Account[]
-  total_available: Amount
-  recent: Transaction[]
-  flow: Flow
 }
 
 /**
@@ -167,65 +208,53 @@ export interface ApiErrorBody {
 
 // --- investments -------------------------------------------------------------
 
-/** An investment account's IBKR link, or its absence. */
+/** A brokerage account's IBKR link. Never includes the token. */
 export interface InvestmentLinkStatus {
   ibkr_account_id: string
-  /** Absent when the account has never synced. */
   last_synced_at?: string
   last_sync_status: 'never' | 'ok' | 'error'
-  /** Only present when `last_sync_status` is `'error'`. */
   last_sync_error?: string
 }
 
-/** What one sync did — a healthy no-op run looks the same shape as one that moved money. */
+/** What one sync saw and did. */
 export interface InvestmentSyncResult {
-  cash_movements_posted: number
-  /** Already recorded on this account — the only harmless kind of skip. */
-  cash_movements_skipped: number
-  /** Rejected on an earlier sync and never retried, so cash leaves them out. */
-  cash_movements_failed_before: number
-  /** Already recorded on another corebank account linked to the same IBKR account. */
-  cash_movements_other_account: number
-  trades_recorded: number
-  trades_skipped: number
+  run_id: string
+  cash_new: number
+  cash_duplicate: number
+  /** Rows in a currency other than USD, left out and counted. */
+  cash_failed: number
+  trades_new: number
+  trades_duplicate: number
   positions: number
-  /** The period IBKR's report covers, as civil dates (YYYY-MM-DD). */
-  period_from?: string
-  period_to?: string
+  /** The period IBKR's report covers (YYYY-MM-DD). */
+  period_from: string | null
+  period_to: string | null
   generated_at?: string
+  /** IBKR's own ending cash, which the computed cash must agree with. */
+  reported_cash?: Amount
   missing_sections: string[]
   /** Spanish, ready to show. */
   warnings: string[]
 }
 
-/** One holding, as of the account's last sync — not a live quote. */
+/** One holding, as of the last sync. */
 export interface InvestmentPosition {
   symbol: string
   asset_class: string
   quantity: number
-  mark_price: Amount
-  market_value: Amount
-  cost_basis: Amount
+  mark_price?: Amount
+  market_value?: Amount
+  cost_basis?: Amount
   as_of: string
 }
 
-/**
- * An investment account's value from both of its sources of truth.
- *
- * `cash` is what the ledger says — the one number here corebank actually verified.
- * `holdings_value` is the sum of the positions' own market values, as of the last
- * sync. They are shown separately for the same reason `BalanceComposition` never
- * blends settled and held: a figure this app cannot verify must never be folded
- * into one it can.
- */
 export interface Portfolio {
-  cash: Amount
-  holdings_value: Amount
-  total_value: Amount
+  holdings: Amount
   positions: InvestmentPosition[]
 }
 
 export interface InvestmentTrade {
+  id: string
   symbol: string
   asset_class: string
   side: 'buy' | 'sell'
@@ -236,74 +265,49 @@ export interface InvestmentTrade {
   trade_date: string
 }
 
-// --- bank import ---------------------------------------------------------------
+// --- imports -------------------------------------------------------------------
 
-/**
- * A card account imported from a statement file, not one of corebank's own.
- * A bank *account* statement is linked to a real corebank account instead —
- * see `ImportResult` — so it never shows up here.
- *
- * `declared_balance` is a sum of whatever rows happened to be imported, never a
- * figure verified against a live source the way a TigerBeetle account's balance
- * is — named for what it is so it never gets folded into `total_available` or
- * shown with the same weight as a ledger figure.
- */
-export interface ExternalAccount {
-  id: string
-  institution: 'banco_general' | 'bac'
-  account_number: string
+/** What one statement in an uploaded file did to its account. */
+export interface ImportAccountResult {
+  account_id: string
   display_name: string
-  currency: string
-  declared_balance: Amount
-  created_at: string
+  /** The file introduced this account. */
+  created: boolean
+  period_start: string
+  period_end: string
+  lines: number
+  new: number
+  duplicates: number
+  opening?: Amount
+  closing?: Amount
+  chain_break?: { line_no: number; bank: Amount; computed: Amount }
+  warnings: string[]
+  /** A card whose file prints no balance, with no starting balance yet. */
+  needs_opening: boolean
 }
 
-/**
- * The outcome of "sincerar saldo" (a manual balance correction). `adjusted`
- * is false when the stated balance already matched — nothing was posted, so
- * there is nothing new to show.
- */
-export interface ReconcileResult {
-  adjusted: boolean
-  transaction?: Transaction
-}
-
-export interface ExternalTransaction {
-  id: string
-  occurred_at: string
-  amount: Amount
-  description: string
-  external_ref?: string
-  category_id?: string
-}
-
-export interface ImportBatch {
-  id: string
-  filename: string
-  format: string
-  row_count: number
-  imported: number
-  skipped_duplicates: number
-  created_at: string
-}
-
-/** What one upload did, returned straight from `POST /api/external-accounts/import`. */
 export interface ImportResult {
-  external_account_id: string
-  format: string
-  total_rows: number
-  imported: number
-  skipped_duplicates: number
-  /** True for a card statement, which stays its own "Tarjetas" entry exactly
-   * as before. False means the movements above posted for real, to the
-   * account named by `linked_account_number`. */
-  is_card: boolean
-  linked_account_number?: string
+  source: 'bg_account' | 'bac_account' | 'bg_card'
+  /** The exact same file was already imported; nothing changed. */
+  unchanged: boolean
+  accounts: ImportAccountResult[]
 }
 
-export interface CategorySpend {
-  category_id?: string
-  amount_cents: number
+/** One import or IBKR sync, as recorded. */
+export interface ImportRun {
+  id: string
+  source: 'bg_account' | 'bac_account' | 'bg_card' | 'ibkr_flex'
+  status: 'ok' | 'unchanged' | 'error'
+  filename?: string
+  period_start: string | null
+  period_end: string | null
+  lines_seen: number
+  lines_new: number
+  lines_duplicate: number
+  lines_failed: number
+  details: { warnings?: string[]; missing_sections?: string[] }
+  error?: string
+  created_at: string
 }
 
 // --- categories ------------------------------------------------------------------

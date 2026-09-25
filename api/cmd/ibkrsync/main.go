@@ -1,10 +1,11 @@
-// Command ibkrsync runs an IBKR Flex Query sync for every linked account.
+// Command ibkrsync syncs every linked IBKR account through the Flex Web
+// Service.
 //
-// It is a one-shot job, the same shape as cmd/seed: connect, do the work,
-// exit. Meant to be invoked on a schedule by something outside the process
-// (cron, a Dokploy scheduled job) rather than looping internally, so a stuck
-// IBKR request or a misbehaving statement cannot wedge a long-running
-// process — the next scheduled invocation is the retry.
+// A one-shot job — connect, sync, exit — meant to be run on a schedule by
+// something outside the process (cron, a Dokploy scheduled job), so a stuck
+// IBKR request cannot wedge a long-running process: the next run is the retry.
+// Run it in the morning, after IBKR's overnight processing has published the
+// previous day.
 package main
 
 import (
@@ -14,16 +15,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/JuanKsPty/corebank/api/internal/accounts"
-	"github.com/JuanKsPty/corebank/api/internal/categories"
 	"github.com/JuanKsPty/corebank/api/internal/config"
 	"github.com/JuanKsPty/corebank/api/internal/investments"
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/store"
-	"github.com/JuanKsPty/corebank/api/internal/tigerbeetle"
-	"github.com/JuanKsPty/corebank/api/internal/transactions"
 )
 
 func main() {
@@ -39,7 +35,7 @@ func run() error {
 		return err
 	}
 	if !cfg.IBKR.Enabled() {
-		return fmt.Errorf("ibkrsync: IBKR_TOKEN_ENCRYPTION_KEY is not configured; nothing to sync could have been linked")
+		return fmt.Errorf("ibkrsync: IBKR_TOKEN_ENCRYPTION_KEY is not configured; nothing could have been linked")
 	}
 
 	logger := logging.New(cfg.Log.Level, cfg.Log.Format)
@@ -54,45 +50,20 @@ func run() error {
 	}
 	defer db.Close()
 
-	// Not run here on purpose: this job assumes the API has already brought
-	// the schema up to date, the same assumption cmd/tbsmoke makes about the
-	// ledger. Migrating from two binaries racing at boot is what goose's own
-	// locking guards against, but there is no reason for this job to be the
-	// one that does it.
+	// The schema is the API's to migrate; this job assumes it is current.
+	svc := investments.NewService(db, cfg.IBKR.TokenEncryptionKey)
+	results, failures := svc.SyncAll(ctx)
 
-	book, err := tigerbeetle.Connect(cfg.TB.ClusterID, cfg.TB.Addresses)
-	if err != nil {
-		return fmt.Errorf("connecting to the ledger: %w", err)
-	}
-	defer func() {
-		if err := book.Close(); err != nil {
-			logger.Error("closing the ledger client failed", "error", err)
-		}
-	}()
-
-	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := book.Ping(pingCtx); err != nil {
-		return fmt.Errorf("ledger unreachable at %v: %w", cfg.TB.Addresses, err)
-	}
-
-	accountsSvc := accounts.NewService(db, book)
-	categoriesSvc := categories.NewService(db)
-	txSvc := transactions.NewService(db, book, accountsSvc, categoriesSvc, cfg.AI.HoldTTL)
-	investmentsSvc := investments.NewService(db, accountsSvc, txSvc, cfg.IBKR.TokenEncryptionKey)
-
-	results, failures := investmentsSvc.SyncAll(ctx)
-	// Sync already logs each account's counts and period; what a scheduled
-	// run's log needs on top is anything that looked successful but was not.
+	// Sync logs each account's counts and period; what a scheduled run's log
+	// needs on top is anything that looked successful but was not.
 	for account, result := range results {
 		for _, warning := range result.Warnings {
-			logger.Warn("ibkr sync warning", "account_number", account, "warning", warning)
+			logger.Warn("ibkr sync warning", "account_id", account, "warning", warning)
 		}
 	}
 	for account, syncErr := range failures {
-		logger.Error("ibkr sync failed", "account_number", account, "error", syncErr)
+		logger.Error("ibkr sync failed", "account_id", account, "error", syncErr)
 	}
-
 	if len(results) == 0 && len(failures) == 0 {
 		logger.Info("no accounts have an IBKR link configured")
 	}

@@ -181,6 +181,10 @@ func parseBAC(data []byte) (File, error) {
 	if asOfErr == nil && (st.PeriodEnd.IsZero() || asOf.After(st.PeriodEnd)) {
 		st.PeriodEnd = asOf
 	}
+	if st.PeriodStart.IsZero() {
+		// A month with no movements still states its balances, as of Fecha.
+		st.PeriodStart = st.PeriodEnd
+	}
 	st.Opening, st.Closing = cents(opening), cents(saldoLibros)
 
 	var sum money.Cents

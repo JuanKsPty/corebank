@@ -61,7 +61,7 @@ func TestEveryToolIsPublishedWithASchemaAndDescription(t *testing.T) {
 	}
 
 	for _, name := range []string{
-		ToolListAccounts, ToolGetBalance, ToolListTransactions,
+		ToolListAccounts, ToolListMovements,
 	} {
 		spec, ok := byName[name]
 		if !ok {
@@ -77,8 +77,8 @@ func TestEveryToolIsPublishedWithASchemaAndDescription(t *testing.T) {
 			t.Errorf("tool %s has no input schema", name)
 		}
 	}
-	if len(specs) != 3 {
-		t.Errorf("the server publishes %d tools, want 3 — a new one needs a test here", len(specs))
+	if len(specs) != 2 {
+		t.Errorf("the server publishes %d tools, want 2 — a new one needs a test here", len(specs))
 	}
 }
 
@@ -89,10 +89,12 @@ func TestNoToolMovesMoney(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tools: %v", err)
 	}
+	verbs := map[string]bool{"deposit": true, "withdraw": true, "withdrawal": true, "transfer": true,
+		"pay": true, "payment": true, "send": true, "move": true}
 	for _, spec := range specs {
-		for _, verb := range []string{"deposit", "withdraw", "transfer", "pay", "move"} {
-			if strings.Contains(strings.ToLower(spec.Name), verb) {
-				t.Errorf("tool %s looks like it moves money (%q)", spec.Name, verb)
+		for _, word := range strings.Split(strings.ToLower(spec.Name), "_") {
+			if verbs[word] {
+				t.Errorf("tool %s looks like it moves money (%q)", spec.Name, word)
 			}
 		}
 	}

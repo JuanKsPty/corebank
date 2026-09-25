@@ -2,203 +2,139 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-
-	"github.com/JuanKsPty/corebank/api/internal/ledger"
 )
 
-// Account is a row of the accounts table: the descriptive half of an account.
-// The other half — how much money is in it — is only in the ledger.
+// Account is one real-world account: a bank account, a card or a brokerage
+// account, keyed the way its institution keys it.
 type Account struct {
-	ID       uuid.UUID
-	UserID   uuid.UUID
-	Number   string
-	LedgerID ledger.AccountID
-	Kind     ledger.AccountKind
-	// Alias is what the customer calls this account. Empty means they have not named
-	// it, and the interface falls back to the account's type — which is why this is a
-	// plain string rather than a pointer: "unnamed" and "named the empty string" are
-	// the same thing to a person, and a nullable column would only spread that
-	// non-distinction through every layer above.
-	Alias     string
-	Currency  string
-	CreatedAt time.Time
+	ID             uuid.UUID
+	UserID         uuid.UUID
+	Class          string // asset | liability
+	Type           string // checking | savings | credit_card | brokerage
+	Institution    string // banco_general | bac | ibkr
+	ExternalNumber string
+	Currency       string
+	DisplayName    string
+	Alias          string
+	CreatedAt      time.Time
 }
 
-// Constraint names a caller may need to distinguish.
-const (
-	AccountsNumberConstraint   = "accounts_account_number_key"
-	AccountsLedgerIDConstraint = "accounts_ledger_id_key"
-)
+const accountColumns = `id, user_id, class, type, institution, external_number, currency, display_name, alias, created_at`
 
-// CreateAccount inserts an account.
-//
-// It records no balance, which is the point: with no balance column there is
-// nothing to keep in sync with the ledger and no way for the two to disagree.
-func (q *Queries) CreateAccount(ctx context.Context, a Account) (Account, error) {
-	const query = `
-		INSERT INTO accounts (id, user_id, account_number, ledger_id, account_type, alias, currency)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING created_at`
+// EnsureAccount returns the user's account with a's identity, creating it on
+// first sight. created reports which happened. An existing account keeps its
+// alias and type: the owner may have relabelled it.
+func (q *Queries) EnsureAccount(ctx context.Context, a Account) (Account, bool, error) {
+	const insert = `
+		INSERT INTO accounts (id, user_id, class, type, institution, external_number, currency, display_name)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (user_id, institution, external_number, currency) DO NOTHING
+		RETURNING ` + accountColumns
 
-	err := q.q.QueryRow(ctx, query,
-		a.ID, a.UserID, a.Number, int64(a.LedgerID), a.Kind.String(), a.Alias, a.Currency,
-	).Scan(&a.CreatedAt)
-	if err != nil {
-		return Account{}, wrap("store.CreateAccount", err)
+	created, err := scanAccount(q.q.QueryRow(ctx, insert, a.ID, a.UserID, a.Class, a.Type,
+		a.Institution, a.ExternalNumber, a.Currency, a.DisplayName))
+	if err == nil {
+		return created, true, nil
 	}
-	return a, nil
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return Account{}, false, wrap("store.EnsureAccount", err)
+	}
+
+	const existing = `SELECT ` + accountColumns + ` FROM accounts
+		WHERE user_id = $1 AND institution = $2 AND external_number = $3 AND currency = $4`
+	found, err := scanAccount(q.q.QueryRow(ctx, existing, a.UserID, a.Institution, a.ExternalNumber, a.Currency))
+	if err != nil {
+		return Account{}, false, wrap("store.EnsureAccount", err)
+	}
+	return found, false, nil
 }
 
-// AccountsByUser lists a user's accounts, oldest first so the account they
-// opened with stays at the top of the dashboard.
+// AccountsByUser lists a user's accounts: bank accounts, then cards, then
+// brokerage, each by name.
 func (q *Queries) AccountsByUser(ctx context.Context, userID uuid.UUID) ([]Account, error) {
-	const query = `
-		SELECT id, user_id, account_number, ledger_id, account_type, alias, currency, created_at
-		FROM accounts WHERE user_id = $1 ORDER BY created_at, account_number`
-
+	const query = `SELECT ` + accountColumns + ` FROM accounts WHERE user_id = $1
+		ORDER BY CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 0 WHEN 'credit_card' THEN 1 ELSE 2 END,
+		         created_at, id`
 	rows, err := q.q.Query(ctx, query, userID)
 	if err != nil {
 		return nil, wrap("store.AccountsByUser", err)
 	}
 	defer rows.Close()
-
-	accounts, err := scanAccounts(rows)
-	if err != nil {
-		return nil, wrap("store.AccountsByUser", err)
+	var out []Account
+	for rows.Next() {
+		a, err := scanAccount(rows)
+		if err != nil {
+			return nil, wrap("store.AccountsByUser", err)
+		}
+		out = append(out, a)
 	}
-	return accounts, nil
+	return out, wrap("store.AccountsByUser", rows.Err())
 }
 
-// AccountByNumber looks up a single account regardless of owner.
-//
-// Authorisation is the caller's responsibility and is checked explicitly at the
-// service layer; a lookup that silently filtered by owner would make
-// "destination account does not exist" indistinguishable from "that account
-// belongs to someone else", and a transfer needs to find accounts it does not
-// own.
-func (q *Queries) AccountByNumber(ctx context.Context, number string) (Account, error) {
-	const query = `
-		SELECT id, user_id, account_number, ledger_id, account_type, alias, currency, created_at
-		FROM accounts WHERE account_number = $1`
-
-	a, err := scanAccount(q.q.QueryRow(ctx, query, number))
-	if err != nil {
-		return Account{}, wrap("store.AccountByNumber", err)
-	}
-	return a, nil
+// AccountByID returns one of the user's accounts. An account that exists but
+// belongs to someone else is ErrNotFound, like one that does not exist.
+func (q *Queries) AccountByID(ctx context.Context, userID, id uuid.UUID) (Account, error) {
+	const query = `SELECT ` + accountColumns + ` FROM accounts WHERE id = $1 AND user_id = $2`
+	a, err := scanAccount(q.q.QueryRow(ctx, query, id, userID))
+	return a, wrap("store.AccountByID", err)
 }
 
-// AccountByID looks up a single account by its row id regardless of owner —
-// used where a caller already holds an id it stored itself (bankimport's
-// linked_account_id, say) rather than a number a customer typed in, so there
-// is nothing left to authorise a second time.
-func (q *Queries) AccountByID(ctx context.Context, id uuid.UUID) (Account, error) {
-	const query = `
-		SELECT id, user_id, account_number, ledger_id, account_type, alias, currency, created_at
-		FROM accounts WHERE id = $1`
-
-	a, err := scanAccount(q.q.QueryRow(ctx, query, id))
-	if err != nil {
-		return Account{}, wrap("store.AccountByID", err)
-	}
-	return a, nil
+// SetAccountAlias renames one of the user's accounts.
+func (q *Queries) SetAccountAlias(ctx context.Context, userID, id uuid.UUID, alias string) error {
+	return q.execOne(ctx, "store.SetAccountAlias",
+		`UPDATE accounts SET alias = $3 WHERE id = $1 AND user_id = $2`, id, userID, alias)
 }
 
-// DeleteAccount removes an account's row. It never touches the ledger — there
-// is no such operation in TigerBeetle's API, so the account it pointed to
-// persists there regardless, holding whatever balance the caller already
-// verified was zero. Every reference the schema keeps to this id either
-// cascades (ibkr_links, investment_positions, investment_trades) or is set to
-// null (external_accounts.linked_account_id); nothing else references
-// accounts.id at all — transactions is keyed by account *number*, not id, so
-// this never touches a row of real or imported history.
-func (q *Queries) DeleteAccount(ctx context.Context, id uuid.UUID) error {
-	const query = `DELETE FROM accounts WHERE id = $1`
+// SetAccountType relabels a bank account as checking or savings. A card or a
+// brokerage account cannot change type; the WHERE clause refuses it.
+func (q *Queries) SetAccountType(ctx context.Context, userID, id uuid.UUID, typ string) error {
+	return q.execOne(ctx, "store.SetAccountType",
+		`UPDATE accounts SET type = $3 WHERE id = $1 AND user_id = $2 AND type IN ('checking', 'savings')`,
+		id, userID, typ)
+}
 
-	tag, err := q.q.Exec(ctx, query, id)
+// DeleteAccount removes an account and, by cascade, everything imported into
+// it: movements, statements, checkpoints, runs, holdings and its IBKR link.
+func (q *Queries) DeleteAccount(ctx context.Context, userID, id uuid.UUID) error {
+	return q.execOne(ctx, "store.DeleteAccount",
+		`DELETE FROM accounts WHERE id = $1 AND user_id = $2`, id, userID)
+}
+
+// LockUser serialises every write that touches one user's money. Imports, IBKR
+// syncs and checkpoint changes each take it first, so two of them can never
+// interleave over the same accounts.
+func (q *Queries) LockUser(ctx context.Context, userID uuid.UUID) error {
+	var one int
+	err := q.q.QueryRow(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&one)
+	return wrap("store.LockUser", err)
+}
+
+// execOne runs a statement expected to touch exactly one row.
+func (q *Queries) execOne(ctx context.Context, op, sql string, args ...any) error {
+	tag, err := q.q.Exec(ctx, sql, args...)
 	if err != nil {
-		return wrap("store.DeleteAccount", err)
+		return wrap(op, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return wrap("store.DeleteAccount", pgx.ErrNoRows)
+		return wrap(op, pgx.ErrNoRows)
 	}
 	return nil
-}
-
-// UpdateAccountAlias sets what the customer calls an account.
-//
-// Keyed by account number and not by owner: authorisation happens at the service
-// layer, which resolves the account through the same ownership check every other
-// operation uses. Repeating it in the WHERE clause would be a second place for that
-// rule to live, and the one that drifts is always the copy.
-//
-// An empty alias is a normal value, not a missing one — it is how a customer removes
-// a name they no longer want.
-func (q *Queries) UpdateAccountAlias(ctx context.Context, number, alias string) error {
-	const query = `UPDATE accounts SET alias = $2 WHERE account_number = $1`
-
-	tag, err := q.q.Exec(ctx, query, number, alias)
-	if err != nil {
-		return wrap("store.UpdateAccountAlias", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return wrap("store.UpdateAccountAlias", pgx.ErrNoRows)
-	}
-	return nil
-}
-
-// AccountNumberTaken reports whether a generated number is already in use, used
-// by the generator to retry before attempting the insert.
-func (q *Queries) AccountNumberTaken(ctx context.Context, number string) (bool, error) {
-	const query = `SELECT EXISTS (SELECT 1 FROM accounts WHERE account_number = $1)`
-
-	var exists bool
-	if err := q.q.QueryRow(ctx, query, number).Scan(&exists); err != nil {
-		return false, wrap("store.AccountNumberTaken", err)
-	}
-	return exists, nil
 }
 
 // scanner is satisfied by both pgx.Row and pgx.Rows, so one scan body serves the
-// single-row and multi-row cases.
+// single-row and multi-row queries alike.
 type scanner interface {
 	Scan(dest ...any) error
 }
 
 func scanAccount(s scanner) (Account, error) {
-	var (
-		a        Account
-		ledgerID int64
-		kind     string
-	)
-	if err := s.Scan(&a.ID, &a.UserID, &a.Number, &ledgerID, &kind, &a.Alias, &a.Currency, &a.CreatedAt); err != nil {
-		return Account{}, err
-	}
-	a.LedgerID = ledger.AccountID(ledgerID)
-
-	parsed, err := ledger.ParseAccountKind(kind)
-	if err != nil {
-		// The column has a CHECK constraint, so reaching here means the schema
-		// and the code have drifted apart — worth reporting rather than
-		// defaulting to some kind and carrying on.
-		return Account{}, err
-	}
-	a.Kind = parsed
-	return a, nil
-}
-
-func scanAccounts(rows pgx.Rows) ([]Account, error) {
-	var accounts []Account
-	for rows.Next() {
-		a, err := scanAccount(rows)
-		if err != nil {
-			return nil, err
-		}
-		accounts = append(accounts, a)
-	}
-	return accounts, rows.Err()
+	var a Account
+	err := s.Scan(&a.ID, &a.UserID, &a.Class, &a.Type, &a.Institution, &a.ExternalNumber,
+		&a.Currency, &a.DisplayName, &a.Alias, &a.CreatedAt)
+	return a, err
 }

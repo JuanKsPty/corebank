@@ -51,11 +51,7 @@ export interface Turn {
  */
 export const TOOL_LABELS: Record<string, string> = {
   list_accounts: 'Consultó tus cuentas',
-  get_balance: 'Consultó un saldo',
-  list_transactions: 'Consultó tus movimientos',
-  deposit: 'Registró un ingreso',
-  prepare_withdrawal: 'Preparó un retiro',
-  prepare_transfer: 'Preparó una transferencia',
+  list_movements: 'Consultó tus movimientos',
 }
 
 interface AssistantContextValue {
@@ -198,11 +194,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
           setStreaming(false)
           setActiveTool(null)
           abortRef.current = null
-          // The assistant may have moved or reserved money, so everything that shows
-          // a balance is now suspect.
-          void queryClient.invalidateQueries({ queryKey: keys.dashboard })
-          void queryClient.invalidateQueries({ queryKey: keys.me })
-          void queryClient.invalidateQueries({ queryKey: ['history'] })
+          // The assistant reads but cannot write yet; the chat history is what
+          // changed.
+          void queryClient.invalidateQueries({ queryKey: keys.chat })
         }
       })()
     },

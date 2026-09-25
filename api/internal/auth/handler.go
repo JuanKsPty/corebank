@@ -11,8 +11,6 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/accounts"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
 	"github.com/JuanKsPty/corebank/api/internal/identity"
-	"github.com/JuanKsPty/corebank/api/internal/ledger"
-	"github.com/JuanKsPty/corebank/api/internal/money"
 	"github.com/JuanKsPty/corebank/api/internal/store"
 )
 
@@ -124,26 +122,26 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	view := accounts.NewListView(list)
 	httpx.JSON(w, r, http.StatusOK, meResponse{
 		User:     newUserResponse(user),
-		Accounts: accounts.NewViews(list),
-		Total:    h.svc.accounts.Total(r.Context(), list).Amount(),
+		Accounts: view.Accounts,
+		NetWorth: view.NetWorth,
 	})
 }
 
 type meResponse struct {
-	User     userResponse    `json:"user"`
-	Accounts []accounts.View `json:"accounts"`
-	Total    money.Amount    `json:"total_available"`
+	User     userResponse          `json:"user"`
+	Accounts []accounts.View       `json:"accounts"`
+	NetWorth accounts.NetWorthView `json:"net_worth"`
 }
 
 // --- request and response shapes -------------------------------------------
 
 type registerRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	FullName    string `json:"full_name"`
-	AccountType string `json:"account_type"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	FullName string `json:"full_name"`
 }
 
 // validate returns per-field messages for the form to display inline.
@@ -184,26 +182,13 @@ func (req registerRequest) validate() (RegisterInput, map[string]string) {
 		problems["full_name"] = "El nombre es demasiado largo."
 	}
 
-	// The first account defaults to a savings account, so the field is optional
-	// on the form.
-	kind := ledger.KindSavings
-	if req.AccountType != "" {
-		parsed, err := ledger.ParseAccountKind(req.AccountType)
-		if err != nil {
-			problems["account_type"] = "El tipo de cuenta debe ser savings, checking o investment."
-		} else {
-			kind = parsed
-		}
-	}
-
 	if len(problems) > 0 {
 		return RegisterInput{}, problems
 	}
 	return RegisterInput{
-		Email:       email,
-		Password:    req.Password,
-		FullName:    fullName,
-		AccountKind: kind,
+		Email:    email,
+		Password: req.Password,
+		FullName: fullName,
 	}, nil
 }
 

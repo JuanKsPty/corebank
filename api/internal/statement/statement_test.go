@@ -351,3 +351,10 @@ func must(f File, err error) File {
 	}
 	return f
 }
+
+func TestBACWithNoMovementsStillStatesItsBalance(t *testing.T) {
+	st := only(t, must(Parse("estado.csv", bacFile("500.00", "500.00"))))
+	if len(st.Lines) != 0 || *st.Closing != 50000 || st.PeriodStart.String() != "2026-08-31" {
+		t.Errorf("statement = lines %d, closing %v, period %s..%s", len(st.Lines), st.Closing, st.PeriodStart, st.PeriodEnd)
+	}
+}

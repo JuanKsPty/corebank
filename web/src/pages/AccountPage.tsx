@@ -1,20 +1,21 @@
+import { useState } from 'react'
 import {
   CircleAlertIcon,
   PencilIcon,
-  ScaleIcon,
+  RefreshCwIcon,
   Trash2Icon,
   UploadIcon,
 } from 'lucide-react'
-import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError } from '@/api/client'
-import { newIdempotencyKey } from '@/api/endpoints'
-import type { Account, InvestmentLinkStatus } from '@/api/types'
+import type { Account, Checkpoint } from '@/api/types'
+import { amountOf, headline, reconciliationNote } from '@/components/AccountCard'
+import { CheckpointDialog } from '@/components/CheckpointDialog'
+import { EntryList } from '@/components/EntryList'
 import { ImportStatementDialog } from '@/components/ImportStatementDialog'
-import { MovementList } from '@/components/MovementList'
-import { ReconcileBalanceDialog } from '@/components/ReconcileBalanceDialog'
-import { BalanceComposition, Figure } from '@/components/primitives'
+import { LinkIBKRDialog } from '@/components/LinkIBKRDialog'
+import { Figure } from '@/components/primitives'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,872 +32,505 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   accountLabel,
-  accountTypeAside,
   accountTypeLabel,
   formatCivilDate,
   formatDate,
+  institutionLabel,
+  money,
 } from '@/lib/format'
 import {
-  useAccountTotal,
+  useAccount,
+  useCategories,
+  useCheckpoints,
   useDeleteAccount,
-  useHistory,
+  useDeleteCheckpoint,
+  useEntryPages,
   useInvestmentLink,
   useInvestmentTrades,
-  useLinkInvestmentAccount,
-  useMe,
+  usePinCheckpoint,
   usePortfolio,
-  useReconcileAccount,
-  useRenameAccount,
   useSyncInvestmentAccount,
+  useUpdateAccount,
 } from '@/lib/queries'
 import { MAX_ALIAS } from '@/lib/validate'
+import { cn } from '@/lib/utils'
 
-/**
- * One account.
- *
- * The same composition bar as the dashboard, scoped to a single account — which is
- * where it is most useful, because a reservation belongs to one account and the
- * consolidated view can only show the total of them.
- */
+const SOURCE_LABEL: Record<Checkpoint['source'], string> = {
+  statement_opening: 'Inicio de estado de cuenta',
+  statement_closing: 'Cierre de estado de cuenta',
+  broker: 'Reporte de IBKR',
+  manual: 'Ingresado por ti',
+}
+
 export function AccountPage() {
-  const { number = '' } = useParams()
-  const me = useMe()
-  const history = useHistory({ accountNumber: number, limit: 25 })
+  const { id = '' } = useParams()
+  const account = useAccount(id)
+  const a = account.data
 
-  const accounts = me.data?.accounts ?? []
-  const account = accounts.find((candidate) => candidate.account_number === number)
-  const ownedAccounts = new Set(accounts.map((candidate) => candidate.account_number))
-  const { total, cash, showTotal } = useAccountTotal(account)
-
-  // Only once the account list has actually loaded does "not found" mean anything.
-  if (!me.isLoading && !account) {
+  if (account.isError) {
     return (
-      <div className="mx-auto max-w-lg py-16 text-center">
-        <p className="type-eyebrow">Cuenta no encontrada</p>
-        <h1 className="type-display mt-2 text-2xl">Esta cuenta no es tuya o no existe</h1>
-        <p className="mt-2 text-ink-soft">
-          Revisa el número, o vuelve al resumen para ver tus cuentas.
-        </p>
-        <Button asChild variant="outline" className="mt-5">
-          <Link to="/panel">Ir al resumen</Link>
-        </Button>
-      </div>
+      <Alert variant="destructive">
+        <CircleAlertIcon />
+        <AlertTitle>No encontramos esta cuenta</AlertTitle>
+        <AlertDescription>
+          <Link to="/cuentas" className="underline">
+            Volver a tus cuentas
+          </Link>
+        </AlertDescription>
+      </Alert>
     )
   }
 
   return (
     <div className="space-y-6">
-      <nav aria-label="Ruta" className="text-[0.8125rem] text-ink-faint">
-        <Link to="/" className="hover:text-ink hover:underline">
-          Resumen
-        </Link>
-        <span aria-hidden="true" className="px-1.5">
-          /
-        </span>
-        <span className="type-figure text-ink-soft">{number}</span>
-      </nav>
-
-      <header>
-        {account ? (
-          <>
-            {/* The name comes first, then the balance. On every other screen this
-                account is one of several and the label is how it is picked out; on the
-                page about this one account, the label is what the page is about. */}
-            <p className="type-eyebrow">
-              {accountLabel(account)} · abierta el {formatDate(account.created_at)}
-            </p>
-            <h1 className="mt-1.5">
-              <span className="sr-only">
-                {showTotal ? 'Valor total de la cuenta: ' : 'Saldo disponible: '}
-              </span>
-              <Figure
-                amount={showTotal && total ? total : account.available}
-                size="display"
-                className="type-display"
-                tone={showTotal ? 'copper' : 'ink'}
-              />
-            </h1>
-            {showTotal && (
-              <p className="type-figure mt-1 text-[0.8125rem] text-ink-soft">
-                Efectivo disponible: <Figure amount={cash ?? account.available} size="sm" />
-              </p>
-            )}
-            <p className="type-figure mt-1 text-[0.875rem] text-ink-soft">
-              {account.account_number}
-              {accountTypeAside(account) && (
-                <span className="font-sans"> · {accountTypeAside(account)}</span>
-              )}
-            </p>
-
-            <RenameAccount account={account} />
-            {account.account_type !== 'investment' && (
-              <>
-                <ImportStatementAction account={account} />
-                <ReconcileBalanceAction account={account} />
-              </>
-            )}
-            <DeleteAccountAction account={account} />
-
-            <div className="mt-5 max-w-xl">
-              <BalanceComposition
-                posted={account.posted}
-                held={account.held}
-                available={account.available}
-              />
-            </div>
-          </>
-        ) : (
-          <div className="space-y-3">
-            <Skeleton className="h-3 w-40" />
-            <Skeleton className="h-12 w-64" />
-          </div>
-        )}
+      <header className="space-y-3">
+        {a ? <Heading account={a} /> : <Skeleton className="h-12 w-64" />}
       </header>
 
-      {account && account.held.cents > 0 && (
-        <Alert className="border-hold/40 bg-hold/8 text-hold-text">
-          <CircleAlertIcon className="text-hold" />
-          <AlertTitle>Hay fondos retenidos en esta cuenta</AlertTitle>
-          <AlertDescription className="text-hold-text/85">
-            Una operación anterior dejó fondos reservados. La reserva se libera sola en unos
-            minutos.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {account && account.account_type === 'investment' && (
-        <InvestmentSection account={account} />
-      )}
-
-      <section className="card" aria-labelledby="movimientos">
-        <div className="flex items-baseline justify-between gap-3 border-b border-rule px-4 py-3">
-          <h2 id="movimientos" className="type-eyebrow">
-            Movimientos de esta cuenta
-          </h2>
-          <Link
-            to={`/historial`}
-            className="text-[0.8125rem] font-medium text-copper hover:underline"
-          >
-            Ver con filtros
-          </Link>
-        </div>
-        <div className="px-4 py-1">
-          <MovementList
-            movements={history.data?.transactions ?? []}
-            ownedAccounts={ownedAccounts}
-            loading={history.isLoading}
-            emptyTitle="Esta cuenta no tiene movimientos"
-            emptyBody="Importa un estado de cuenta de esta cuenta y sus movimientos aparecerán aquí."
-          />
-        </div>
-        {history.data?.has_more && (
-          <div className="border-t border-rule px-4 py-3 text-center">
-            <Link
-              to="/historial"
-              className="text-[0.8125rem] font-medium text-copper hover:underline"
-            >
-              Ver el historial completo de esta cuenta
-            </Link>
-          </div>
-        )}
-      </section>
+      {a && <Actions account={a} />}
+      {a && a.type === 'brokerage' && <InvestmentPanel account={a} />}
+      {a && <Checkpoints account={a} />}
+      {a && <Movements account={a} />}
+      {a && <DangerZone account={a} />}
     </div>
   )
 }
 
-/**
- * Naming an account, from the page about that account.
- *
- * Shown as a line of text with a button rather than a form that is always open, because
- * naming an account is something somebody does once and then not again for months. An
- * input sitting permanently above the statement would be a field to skip past every
- * visit in exchange for a task nobody repeats.
- *
- * Clearing the field is a real action and not a mistake to guard against: it is how a
- * name is removed, and the account goes back to being labelled by its type. So the
- * button stays enabled on an empty field when the account currently has a name.
- */
-function RenameAccount({ account }: { account: Account }) {
-  const [editing, setEditing] = useState(false)
-  const [alias, setAlias] = useState(account.alias)
-  const rename = useRenameAccount()
-
-  const start = () => {
-    setAlias(account.alias)
-    rename.reset()
-    setEditing(true)
-  }
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault()
-    rename.mutate(
-      { number: account.account_number, alias },
-      { onSuccess: () => setEditing(false) },
-    )
-  }
-
-  if (!editing) {
-    return (
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={start}>
-          <PencilIcon aria-hidden="true" />
-          {account.alias ? 'Cambiar el alias' : 'Ponerle un alias'}
-        </Button>
-        {!account.alias && (
-          <p className="text-[0.75rem] text-ink-faint">
-            Útil si tienes otra cuenta del mismo tipo.
+function Heading({ account }: { account: Account }) {
+  const { amount, label } = headline(account)
+  const note = reconciliationNote(account)
+  return (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="type-eyebrow">{accountTypeLabel(account.type)}</p>
+          <h1 className="type-display mt-1.5 truncate text-[1.75rem]">
+            {accountLabel(account)}
+          </h1>
+          <p className="type-figure mt-1 text-[0.8125rem] text-ink-faint">
+            {institutionLabel(account.institution)} · {account.external_number}
+          </p>
+        </div>
+        <RenameDialog account={account} />
+      </div>
+      <div>
+        <Figure amount={amount} size="display" tone={account.anchored ? 'ink' : 'faint'} />
+        <p className="type-eyebrow mt-1">{label}</p>
+        {account.type === 'brokerage' && (
+          <p className="type-figure mt-1 text-[0.8125rem] text-ink-faint">
+            Efectivo {money(account.balance)} · Posiciones{' '}
+            {money(account.holdings ?? amountOf(0))}
           </p>
         )}
-      </div>
-    )
-  }
-
-  const failure = rename.error
-  const message =
-    failure instanceof ApiError
-      ? (failure.fields?.alias ?? failure.message)
-      : failure
-        ? 'No pudimos cambiar el alias. Inténtalo de nuevo.'
-        : null
-
-  return (
-    <form onSubmit={submit} className="mt-4 max-w-md">
-      <label htmlFor="rename-alias" className="text-[0.8125rem] font-medium text-ink-soft">
-        Alias de la cuenta
-      </label>
-      <div className="mt-1.5 flex flex-wrap items-start gap-2">
-        <Input
-          id="rename-alias"
-          value={alias}
-          onChange={(event) => setAlias(event.target.value)}
-          placeholder="Gastos del mes"
-          maxLength={MAX_ALIAS}
-          disabled={rename.isPending}
-          autoComplete="off"
-          autoFocus
-          aria-invalid={message ? true : undefined}
-          aria-describedby={message ? 'rename-alias-error' : undefined}
-          className="min-w-0 flex-1"
-        />
-        <Button
-          type="submit"
-          disabled={rename.isPending || alias === account.alias}
-          className="bg-ink text-paper hover:bg-ink/90"
-        >
-          {rename.isPending && <Spinner />}
-          Guardar
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={rename.isPending}
-          onClick={() => setEditing(false)}
-        >
-          Cancelar
-        </Button>
-      </div>
-
-      {message ? (
         <p
-          id="rename-alias-error"
-          role="alert"
-          className="mt-1.5 text-[0.75rem] text-danger-text"
-        >
-          {message}
-        </p>
-      ) : (
-        <p className="mt-1.5 text-[0.75rem] text-ink-faint">
-          Déjalo vacío para volver a mostrarla como «
-          {accountTypeLabel(account.account_type)}».
-        </p>
-      )}
-    </form>
-  )
-}
-
-/**
- * Importing a bank statement, from the account it belongs to.
- *
- * The target is never a choice here — it is this account, unlike the same
- * dialog opened from the accounts list, which has no account to imply and
- * always opens a new one for a bank-account file. Hidden on an investment
- * account, which links through IBKR instead (InvestmentSection, below)
- * rather than a statement file.
- */
-function ImportStatementAction({ account }: { account: Account }) {
-  return (
-    <div className="mt-3">
-      <ImportStatementDialog
-        account={account}
-        trigger={
-          <Button variant="outline" size="sm">
-            <UploadIcon aria-hidden="true" />
-            Importar estado de cuenta
-          </Button>
-        }
-      />
-    </div>
-  )
-}
-
-/**
- * Correcting a real account's balance, from the account it belongs to.
- *
- * Hidden on an investment account for the same reason ImportStatementAction
- * is: its cash comes from an IBKR sync, not a bank-statement import that
- * could have miscounted a row.
- */
-function ReconcileBalanceAction({ account }: { account: Account }) {
-  const reconcile = useReconcileAccount()
-  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey)
-
-  return (
-    <div className="mt-3">
-      <ReconcileBalanceDialog
-        currentBalance={account.posted}
-        isPending={reconcile.isPending}
-        error={reconcile.error}
-        reset={() => {
-          reconcile.reset()
-          setIdempotencyKey(newIdempotencyKey())
-        }}
-        onReconcile={(targetBalance) =>
-          reconcile.mutateAsync({
-            accountNumber: account.account_number,
-            targetBalance,
-            idempotencyKey,
-          })
-        }
-        trigger={
-          <Button variant="outline" size="sm">
-            <ScaleIcon aria-hidden="true" />
-            Sincerar saldo
-          </Button>
-        }
-      />
-    </div>
-  )
-}
-
-/**
- * Deleting an account, from the account it belongs to.
- *
- * Disabled rather than hidden while the account still holds anything, so the
- * reason is visible instead of the option just being missing. "Delete" is
- * the word used here; what it actually does is narrower — see
- * accounts.Service.Delete — because TigerBeetle has no operation that
- * deletes a ledger account at all. Below zero balance there is nothing left
- * to lose access to, so removing the row that lets the app find it is the
- * closest thing to closing it that exists.
- */
-function DeleteAccountAction({ account }: { account: Account }) {
-  const [open, setOpen] = useState(false)
-  const deleteAccount = useDeleteAccount()
-  const navigate = useNavigate()
-
-  const canDelete = account.posted.cents === 0 && account.held.cents === 0
-
-  const failure = deleteAccount.error
-  const message =
-    failure instanceof ApiError
-      ? failure.message
-      : failure
-        ? 'No se pudo eliminar la cuenta. Inténtalo de nuevo.'
-        : null
-
-  return (
-    <div className="mt-3">
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next)
-          if (!next) deleteAccount.reset()
-        }}
-      >
-        <DialogTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!canDelete}
-            className="text-danger-text hover:border-danger/40 hover:bg-danger/5 hover:text-danger-text"
-          >
-            <Trash2Icon aria-hidden="true" />
-            Eliminar cuenta
-          </Button>
-        </DialogTrigger>
-
-        <DialogContent className="sm:max-w-[26rem]">
-          <DialogHeader>
-            <DialogTitle className="type-display text-[1.25rem]">
-              ¿Eliminar esta cuenta?
-            </DialogTitle>
-            <DialogDescription>
-              {accountLabel(account)} ({account.account_number}) deja de aparecer en
-              corebank. No se puede deshacer.
-            </DialogDescription>
-          </DialogHeader>
-
-          {message && (
-            <p role="alert" className="text-[0.8125rem] text-danger-text">
-              {message}
-            </p>
+          className={cn(
+            'mt-2 text-[0.8125rem]',
+            note.tone === 'warn'
+              ? 'text-hold-text'
+              : note.tone === 'ok'
+                ? 'text-credit'
+                : 'text-ink-faint',
           )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={deleteAccount.isPending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={deleteAccount.isPending}
-              onClick={() =>
-                deleteAccount.mutate(account.account_number, {
-                  onSuccess: () => navigate('/cuentas'),
-                })
-              }
-            >
-              {deleteAccount.isPending && <Spinner />}
-              Eliminar cuenta
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {!canDelete && (
-        <p className="mt-1.5 text-[0.75rem] text-ink-faint">
-          Mueve el saldo a otra cuenta antes de eliminarla.
+        >
+          {note.text}
         </p>
+      </div>
+    </>
+  )
+}
+
+function Actions({ account }: { account: Account }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {account.type !== 'brokerage' && (
+        <ImportStatementDialog
+          account={account}
+          trigger={
+            <Button variant="outline">
+              <UploadIcon aria-hidden="true" />
+              Importar estado de cuenta
+            </Button>
+          }
+        />
       )}
+      <CheckpointDialog
+        account={account}
+        anchor={!account.anchored}
+        trigger={
+          <Button variant={account.anchored ? 'outline' : 'default'}>
+            {account.class === 'liability'
+              ? 'Ingresar monto adeudado'
+              : 'Ingresar saldo del banco'}
+          </Button>
+        }
+      />
     </div>
   )
 }
 
-/**
- * An investment account's IBKR portfolio.
- *
- * Not linked yet and linked are two different screens, not one screen with a
- * conditional banner: before a link exists there is nothing to show but a way to
- * create one, and after it exists the account's own data is what the page is about.
- */
-function InvestmentSection({ account }: { account: Account }) {
-  const link = useInvestmentLink(account.account_number)
-
-  // ibkr_not_linked is the normal shape of "no link yet", not a fault — every
-  // other failure to load the link's own status is shown as one.
-  const notLinked =
-    link.isError && link.error instanceof ApiError && link.error.code === 'ibkr_not_linked'
+function Checkpoints({ account }: { account: Account }) {
+  const list = useCheckpoints(account.id)
+  const pin = usePinCheckpoint(account.id)
+  const remove = useDeleteCheckpoint(account.id)
+  const items = [...(list.data?.checkpoints ?? [])].reverse()
+  if (items.length === 0) return null
 
   return (
-    <section className="card" aria-labelledby="inversiones">
-      <div className="border-b border-rule px-4 py-3">
-        <h2 id="inversiones" className="type-eyebrow">
-          Portafolio de IBKR
-        </h2>
-      </div>
-
-      <div className="space-y-5 px-4 py-4">
-        {link.isLoading && (
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-4 w-64" />
-          </div>
-        )}
-
-        {notLinked && <LinkAccountForm account={account} />}
-
-        {link.isError && !notLinked && (
-          <Alert variant="destructive">
-            <CircleAlertIcon />
-            <AlertTitle>No se pudo cargar el estado de la cuenta de IBKR</AlertTitle>
-            <AlertDescription>Inténtalo de nuevo en un momento.</AlertDescription>
-          </Alert>
-        )}
-
-        {link.isSuccess && link.data && (
-          <LinkedPortfolio account={account} link={link.data} />
-        )}
-      </div>
+    <section className="card p-4">
+      <h2 className="type-eyebrow mb-3">Saldos declarados</h2>
+      <ul className="divide-y divide-rule text-[0.8125rem]">
+        {items.map((c) => (
+          <li key={c.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
+            <span className="type-figure w-28 shrink-0 text-ink-faint">
+              {formatCivilDate(c.as_of)}
+            </span>
+            <Figure
+              amount={
+                account.class === 'liability' ? amountOf(-c.balance.cents) : c.balance
+              }
+              size="sm"
+            />
+            <span className="text-ink-soft">
+              {SOURCE_LABEL[c.source]}
+              {c.pinned && ' · saldo de partida'}
+            </span>
+            <span className="ml-auto flex gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={pin.isPending}
+                onClick={() => pin.mutate(c.pinned ? null : c.id)}
+              >
+                {c.pinned ? 'Quitar como partida' : 'Usar como partida'}
+              </Button>
+              {c.source === 'manual' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(c.id)}
+                  aria-label="Borrar este saldo"
+                >
+                  <Trash2Icon aria-hidden="true" />
+                </Button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
 
-/**
- * The one-time form that creates a link.
- *
- * A dialog rather than an inline form, unlike `RenameAccount`: entering a broker
- * token is not something to leave half-typed in the middle of the page, and a
- * dialog is where this codebase already puts an action taken once and rarely
- * repeated (`OpenAccountDialog` in `AccountsPage.tsx`).
- */
-function LinkAccountForm({ account }: { account: Account }) {
-  const [open, setOpen] = useState(false)
-  const [ibkrAccountId, setIbkrAccountId] = useState('')
-  const [flexQueryId, setFlexQueryId] = useState('')
-  const [flexToken, setFlexToken] = useState('')
-  const link = useLinkInvestmentAccount()
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault()
-    link.mutate(
-      {
-        accountNumber: account.account_number,
-        input: {
-          ibkr_account_id: ibkrAccountId,
-          flex_query_id: flexQueryId,
-          flex_token: flexToken,
-        },
-      },
-      {
-        onSuccess: () => {
-          setOpen(false)
-          setIbkrAccountId('')
-          setFlexQueryId('')
-          setFlexToken('')
-          link.reset()
-        },
-      },
-    )
-  }
-
-  const failure = link.error
-  const message =
-    failure instanceof ApiError
-      ? (failure.fields?.flex_token ?? failure.fields?.flex_query_id ?? failure.message)
-      : failure
-        ? 'No pudimos vincular la cuenta. Inténtalo de nuevo.'
-        : null
+function Movements({ account }: { account: Account }) {
+  const pages = useEntryPages({ accountId: account.id, limit: 50 })
+  const categories = useCategories()
+  const entries = pages.data?.pages.flatMap((p) => p.entries) ?? []
 
   return (
-    <div>
-      <p className="text-[0.8125rem] text-ink-soft">
-        Conecta esta cuenta con una Flex Query de Interactive Brokers para traer tu efectivo
-        y tus posiciones reales.
-      </p>
-
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next)
-          if (!next) link.reset()
-        }}
-      >
-        <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="mt-3">
-            Vincular con IBKR
+    <section className="card">
+      <div className="px-4 pt-4">
+        <h2 className="type-eyebrow">Movimientos</h2>
+      </div>
+      <div className="px-4 py-1">
+        <EntryList
+          entries={entries}
+          accounts={[account]}
+          categories={categories.data?.categories}
+          loading={pages.isLoading}
+          showAccount={false}
+          emptyTitle="Esta cuenta no tiene movimientos"
+          emptyBody={
+            account.type === 'brokerage'
+              ? 'Sincroniza con IBKR para traer tus movimientos.'
+              : 'Importa un estado de cuenta de esta cuenta y sus movimientos aparecerán aquí.'
+          }
+        />
+      </div>
+      {pages.hasNextPage && (
+        <div className="border-t border-rule p-3 text-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => pages.fetchNextPage()}
+            disabled={pages.isFetchingNextPage}
+          >
+            {pages.isFetchingNextPage && <Spinner />}
+            Ver más
           </Button>
-        </DialogTrigger>
-
-        <DialogContent className="sm:max-w-[26rem]">
-          <form onSubmit={submit}>
-            <DialogHeader>
-              <DialogTitle className="type-display text-[1.25rem]">
-                Vincula tu cuenta de IBKR
-              </DialogTitle>
-              <DialogDescription>
-                El token se guarda cifrado y no se vuelve a mostrar después de esto.
-              </DialogDescription>
-            </DialogHeader>
-
-            <fieldset className="grid gap-4 py-4" disabled={link.isPending}>
-              <Field>
-                <FieldLabel htmlFor="ibkr-account-id">Número de cuenta de IBKR</FieldLabel>
-                <Input
-                  id="ibkr-account-id"
-                  value={ibkrAccountId}
-                  onChange={(event) => setIbkrAccountId(event.target.value)}
-                  placeholder="U13446202"
-                  autoComplete="off"
-                  required
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="flex-query-id">Query ID de la Flex Query</FieldLabel>
-                <Input
-                  id="flex-query-id"
-                  value={flexQueryId}
-                  onChange={(event) => setFlexQueryId(event.target.value)}
-                  autoComplete="off"
-                  required
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="flex-token">Token de Flex Web Service</FieldLabel>
-                <Input
-                  id="flex-token"
-                  type="password"
-                  value={flexToken}
-                  onChange={(event) => setFlexToken(event.target.value)}
-                  autoComplete="off"
-                  required
-                />
-              </Field>
-            </fieldset>
-
-            {message && (
-              <p role="alert" className="mb-2 text-[0.8125rem] text-danger-text">
-                {message}
-              </p>
-            )}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-                disabled={link.isPending}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                disabled={link.isPending || !ibkrAccountId || !flexQueryId || !flexToken}
-                className="bg-copper text-primary-foreground hover:bg-copper/90"
-              >
-                {link.isPending && <Spinner />}
-                Vincular
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
+        </div>
+      )}
+    </section>
   )
 }
 
-/** A linked account's sync control and its last-known portfolio. */
-function LinkedPortfolio({
-  account,
-  link,
-}: {
-  account: Account
-  link: InvestmentLinkStatus
-}) {
-  const sync = useSyncInvestmentAccount()
-  const portfolio = usePortfolio(account.account_number)
-  const trades = useInvestmentTrades(account.account_number)
+function InvestmentPanel({ account }: { account: Account }) {
+  const link = useInvestmentLink(account.id)
+  const sync = useSyncInvestmentAccount(account.id)
+  const portfolio = usePortfolio(account.id)
+  const trades = useInvestmentTrades(account.id)
+  const result = sync.data
 
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[0.8125rem] text-ink-faint">
-            {link.last_synced_at
-              ? `Última sincronización: ${formatDate(link.last_synced_at)}`
+    <section className="card space-y-4 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="type-eyebrow">Interactive Brokers</h2>
+          <p className="mt-1 text-[0.8125rem] text-ink-faint">
+            {link.data?.last_synced_at
+              ? `Última sincronización: ${formatDate(link.data.last_synced_at)}`
               : 'Todavía no se ha sincronizado.'}
           </p>
+        </div>
+        <div className="flex gap-2">
+          <LinkIBKRDialog
+            accountId={account.id}
+            trigger={
+              <Button variant="ghost" size="sm">
+                Cambiar Flex Query
+              </Button>
+            }
+          />
           <Button
             variant="outline"
             size="sm"
-            onClick={() => sync.mutate(account.account_number)}
+            onClick={() => sync.mutate()}
             disabled={sync.isPending}
           >
-            {sync.isPending && <Spinner />}
+            {sync.isPending ? <Spinner /> : <RefreshCwIcon aria-hidden="true" />}
             {sync.isPending ? 'Sincronizando' : 'Sincronizar ahora'}
           </Button>
         </div>
-
-        {link.last_sync_status === 'error' && link.last_sync_error && (
-          <Alert variant="destructive" className="mt-3">
-            <CircleAlertIcon />
-            <AlertTitle>La última sincronización falló</AlertTitle>
-            <AlertDescription>{link.last_sync_error}</AlertDescription>
-          </Alert>
-        )}
-
-        {sync.isSuccess && sync.data && (
-          <div className="mt-2 space-y-2">
-            <p className="text-[0.8125rem] text-ink-soft">
-              {sync.data.period_from && sync.data.period_to
-                ? `Datos de IBKR del ${formatCivilDate(sync.data.period_from)} al ${formatCivilDate(sync.data.period_to)}. `
-                : 'El reporte de IBKR no indica su período. '}
-              Efectivo: {sync.data.cash_movements_posted} nuevo(s),{' '}
-              {sync.data.cash_movements_skipped} ya registrado(s)
-              {sync.data.cash_movements_failed_before > 0 &&
-                `, ${sync.data.cash_movements_failed_before} fallido(s) antes`}
-              {sync.data.cash_movements_other_account > 0 &&
-                `, ${sync.data.cash_movements_other_account} en otra cuenta`}{' '}
-              · Operaciones: {sync.data.trades_recorded} nueva(s) · Posiciones:{' '}
-              {sync.data.positions}
-            </p>
-            {sync.data.warnings.length > 0 && (
-              <Alert className="border-hold/40 bg-hold/8 text-hold-text">
-                <CircleAlertIcon className="text-hold" />
-                <AlertTitle>La sincronización terminó, pero revisa esto</AlertTitle>
-                <AlertDescription>
-                  <ul className="list-disc space-y-1 pl-4">
-                    {sync.data.warnings.map((warning) => (
-                      <li key={warning}>{warning}</li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-        )}
-
-        {sync.isError && (
-          <Alert variant="destructive" className="mt-3">
-            <CircleAlertIcon />
-            <AlertTitle>No se pudo sincronizar</AlertTitle>
-            <AlertDescription>
-              {sync.error instanceof ApiError
-                ? sync.error.message
-                : 'Inténtalo de nuevo en un momento.'}
-            </AlertDescription>
-          </Alert>
-        )}
       </div>
 
-      {portfolio.isLoading && (
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-full" />
-          <Skeleton className="h-24 w-full" />
+      {link.data?.last_sync_status === 'error' &&
+        link.data.last_sync_error &&
+        !sync.isPending && (
+          <Alert variant="destructive">
+            <CircleAlertIcon />
+            <AlertTitle>La última sincronización falló</AlertTitle>
+            <AlertDescription>{link.data.last_sync_error}</AlertDescription>
+          </Alert>
+        )}
+      {sync.isError && (
+        <Alert variant="destructive">
+          <CircleAlertIcon />
+          <AlertTitle>No se pudo sincronizar</AlertTitle>
+          <AlertDescription>
+            {sync.error instanceof ApiError
+              ? sync.error.message
+              : 'Inténtalo de nuevo en un momento.'}
+          </AlertDescription>
+        </Alert>
+      )}
+      {result && (
+        <div className="space-y-2 text-[0.8125rem] text-ink-soft">
+          <p>
+            {result.period_from && result.period_to
+              ? `Datos de IBKR del ${formatCivilDate(result.period_from)} al ${formatCivilDate(result.period_to)}. `
+              : 'El reporte de IBKR no indica su período. '}
+            Efectivo: {result.cash_new} nuevo(s), {result.cash_duplicate} ya registrado(s) ·
+            Operaciones: {result.trades_new} nueva(s) · Posiciones: {result.positions}
+            {result.reported_cash &&
+              ` · Efectivo según IBKR: ${money(result.reported_cash)}`}
+          </p>
+          {result.warnings.length > 0 && (
+            <Alert className="border-hold/40 bg-hold/8 text-hold-text">
+              <CircleAlertIcon className="text-hold" />
+              <AlertTitle>La sincronización terminó, pero revisa esto</AlertTitle>
+              <AlertDescription>
+                <ul className="list-disc space-y-1 pl-4">
+                  {result.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
       )}
 
-      {portfolio.data && (
-        <>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <p className="type-eyebrow">Efectivo</p>
-              <Figure amount={portfolio.data.cash} size="lg" className="mt-1" />
-            </div>
-            <div>
-              <p className="type-eyebrow">Posiciones</p>
-              <Figure amount={portfolio.data.holdings_value} size="lg" className="mt-1" />
-            </div>
-            <div>
-              <p className="type-eyebrow">Total</p>
-              <Figure
-                amount={portfolio.data.total_value}
-                size="lg"
-                tone="copper"
-                className="mt-1"
-              />
-            </div>
-          </div>
-
-          {portfolio.data.positions.length === 0 ? (
-            <p className="text-[0.8125rem] text-ink-faint">
-              Todavía no hay posiciones registradas. Sincroniza para traerlas.
-            </p>
-          ) : (
-            <div className="overflow-hidden rounded-[5px] border border-rule">
-              <Table className="table-fixed">
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
-                      Símbolo
-                    </TableHead>
-                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
-                      Cantidad
-                    </TableHead>
-                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
-                      Precio
-                    </TableHead>
-                    <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
-                      Valor
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {portfolio.data.positions.map((position) => (
-                    <TableRow
-                      key={position.symbol}
-                      className="border-b border-rule last:border-0"
-                    >
-                      <TableCell className="px-3 py-2.5">
-                        <span className="font-medium">{position.symbol}</span>
-                        <span className="ml-1.5 text-[0.75rem] text-ink-faint">
-                          {position.asset_class}
-                        </span>
-                      </TableCell>
-                      <TableCell className="type-figure px-3 py-2.5 text-right text-[0.8125rem] text-ink-soft">
-                        {position.quantity}
-                      </TableCell>
-                      <TableCell className="px-3 py-2.5 text-right">
-                        <Figure amount={position.mark_price} size="sm" />
-                      </TableCell>
-                      <TableCell className="px-3 py-2.5 text-right">
-                        <Figure amount={position.market_value} size="sm" />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </>
+      {portfolio.data && portfolio.data.positions.length > 0 && (
+        <div>
+          <h3 className="type-eyebrow mb-2">Posiciones</h3>
+          <ul className="divide-y divide-rule text-[0.8125rem]">
+            {portfolio.data.positions.map((p) => (
+              <li key={p.symbol} className="flex items-baseline gap-3 py-2">
+                <span className="w-16 font-medium">{p.symbol}</span>
+                <span className="type-figure text-ink-faint">{p.quantity}</span>
+                <span className="ml-auto">
+                  {p.market_value && <Figure amount={p.market_value} size="sm" />}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[0.75rem] text-ink-faint">
+            Al {formatCivilDate(portfolio.data.positions[0]!.as_of)}, según IBKR.
+          </p>
+        </div>
       )}
 
       {trades.data && trades.data.trades.length > 0 && (
         <div>
-          <p className="type-eyebrow mb-2">Operaciones recientes</p>
-          <div className="overflow-hidden rounded-[5px] border border-rule">
-            <Table className="table-fixed">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
-                    Fecha
-                  </TableHead>
-                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
-                    Símbolo
-                  </TableHead>
-                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 align-bottom">
-                    Lado
-                  </TableHead>
-                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
-                    Cantidad
-                  </TableHead>
-                  <TableHead className="type-eyebrow h-auto px-3 pb-2 pt-2 text-right align-bottom">
-                    Precio
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {trades.data.trades.map((trade, index) => (
-                  <TableRow
-                    // Trades have no id of their own on the wire — the tuple below is
-                    // as unique as this list gets, and it is stable across refetches
-                    // of the same data.
-                    key={`${trade.symbol}-${trade.trade_date}-${index}`}
-                    className="border-b border-rule last:border-0"
-                  >
-                    <TableCell className="type-figure px-3 py-2.5 text-[0.8125rem] text-ink-faint">
-                      {formatDate(trade.trade_date)}
-                    </TableCell>
-                    <TableCell className="px-3 py-2.5 font-medium">
-                      {trade.symbol}
-                    </TableCell>
-                    <TableCell className="px-3 py-2.5 text-[0.8125rem] text-ink-soft">
-                      {trade.side === 'buy' ? 'Compra' : 'Venta'}
-                    </TableCell>
-                    <TableCell className="type-figure px-3 py-2.5 text-right text-[0.8125rem] text-ink-soft">
-                      {trade.quantity}
-                    </TableCell>
-                    <TableCell className="px-3 py-2.5 text-right">
-                      <Figure amount={trade.price} size="sm" />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <h3 className="type-eyebrow mb-2">Operaciones recientes</h3>
+          <ul className="divide-y divide-rule text-[0.8125rem]">
+            {trades.data.trades.map((t) => (
+              <li key={t.id} className="flex items-baseline gap-3 py-2">
+                <span className="type-figure w-24 text-ink-faint">
+                  {formatCivilDate(t.trade_date)}
+                </span>
+                <span>
+                  {t.side === 'buy' ? 'Compra' : 'Venta'} {t.quantity} {t.symbol}
+                </span>
+                <span className="ml-auto">
+                  <Figure amount={t.net_cash} size="sm" />
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
+    </section>
+  )
+}
+
+function RenameDialog({ account }: { account: Account }) {
+  const [open, setOpen] = useState(false)
+  const [alias, setAlias] = useState(account.alias ?? '')
+  const [type, setType] = useState(account.type)
+  const update = useUpdateAccount(account.id)
+  const bank = account.type === 'checking' || account.type === 'savings'
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) {
+          setAlias(account.alias ?? '')
+          setType(account.type)
+        } else update.reset()
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" aria-label="Renombrar la cuenta">
+          <PencilIcon aria-hidden="true" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[24rem]">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const patch: { alias?: string; type?: 'checking' | 'savings' } = { alias }
+            if (bank && type !== account.type) patch.type = type as 'checking' | 'savings'
+            update.mutate(patch, { onSuccess: () => setOpen(false) })
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle className="type-display text-[1.25rem]">
+              Nombre de la cuenta
+            </DialogTitle>
+            <DialogDescription>
+              Cómo la reconoces. Déjalo vacío para usar el del banco.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor="alias">Alias</FieldLabel>
+            <Input
+              id="alias"
+              value={alias}
+              maxLength={MAX_ALIAS}
+              onChange={(e) => setAlias(e.target.value)}
+            />
+          </Field>
+          {bank && (
+            <div className="flex gap-4 text-[0.875rem]">
+              {(['checking', 'savings'] as const).map((t) => (
+                <label key={t} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="type"
+                    checked={type === t}
+                    onChange={() => setType(t)}
+                  />
+                  {accountTypeLabel(t)}
+                </label>
+              ))}
+            </div>
+          )}
+          {update.isError && (
+            <Alert variant="destructive">
+              <CircleAlertIcon />
+              <AlertDescription>
+                {update.error instanceof ApiError
+                  ? (update.error.fields?.alias ?? update.error.message)
+                  : 'No se pudo guardar.'}
+              </AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={update.isPending}
+              className="bg-copper text-primary-foreground hover:bg-copper/90"
+            >
+              {update.isPending && <Spinner />}
+              Guardar
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DangerZone({ account }: { account: Account }) {
+  const [open, setOpen] = useState(false)
+  const remove = useDeleteAccount()
+  const navigate = useNavigate()
+
+  return (
+    <div className="border-t border-rule pt-4">
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-danger-text">
+            <Trash2Icon aria-hidden="true" />
+            Eliminar esta cuenta
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[24rem]">
+          <DialogHeader>
+            <DialogTitle className="type-display text-[1.25rem]">
+              ¿Eliminar {accountLabel(account)}?
+            </DialogTitle>
+            <DialogDescription>
+              Se borran sus {account.movements} movimientos, sus saldos declarados y sus
+              importaciones{account.type === 'brokerage' ? ', y el vínculo con IBKR' : ''}.
+              Volver a importar sus archivos la recrea igual.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() =>
+                remove.mutate(account.id, { onSuccess: () => navigate('/cuentas') })
+              }
+            >
+              {remove.isPending && <Spinner />}
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -59,8 +59,6 @@ export function getAccessToken(): string | null {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
-  /** An Idempotency-Key, for the endpoints that move money. */
-  idempotencyKey?: string
   /** Set on the refresh call itself, which must never try to refresh again. */
   skipRefresh?: boolean
   signal?: AbortSignal
@@ -70,7 +68,6 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
-  if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey
 
   return fetch(path, {
     method: options.method ?? 'GET',
@@ -293,9 +290,4 @@ function parseFrame(frame: string): ChatEvent | null {
     // the reply is still worth showing.
     return null
   }
-}
-
-/** newIdempotencyKey makes a retry of the same movement safe. */
-export function newIdempotencyKey(): string {
-  return crypto.randomUUID()
 }

@@ -4,19 +4,20 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
-	"github.com/JuanKsPty/corebank/api/internal/accounts"
+	"github.com/JuanKsPty/corebank/api/internal/civil"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
 	"github.com/JuanKsPty/corebank/api/internal/identity"
 	"github.com/JuanKsPty/corebank/api/internal/money"
+	"github.com/JuanKsPty/corebank/api/internal/store"
 )
 
-// Handler serves the investment endpoints. Everything is scoped to the
-// authenticated user and to one of their own "investment"-kind accounts,
-// exactly like accounts.Handler.
+// Handler serves /api/investments.
 type Handler struct {
 	svc *Service
 }
@@ -26,12 +27,12 @@ func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 // Routes returns the /api/investments subrouter.
 func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Route("/accounts/{number}", func(r chi.Router) {
-		r.Put("/link", h.setLink)
+	r.Post("/link", h.link)
+	r.Route("/accounts/{id}", func(r chi.Router) {
 		r.Get("/link", h.linkStatus)
+		r.Put("/link", h.relink)
 		r.Post("/sync", h.sync)
 		r.Get("/portfolio", h.portfolio)
-		r.Get("/positions", h.positions)
 		r.Get("/trades", h.trades)
 	})
 	return r
@@ -40,38 +41,73 @@ func (h *Handler) Routes() http.Handler {
 type linkRequest struct {
 	IBKRAccountID string `json:"ibkr_account_id"`
 	FlexQueryID   string `json:"flex_query_id"`
-	// FlexToken is the Flex Web Service token from Client Portal, sent once
-	// and never echoed back — GET .../link never returns it, only whether a
-	// link exists and how its last sync went.
+	// FlexToken is sent once and never echoed back.
 	FlexToken string `json:"flex_token"`
 }
 
-func (h *Handler) setLink(w http.ResponseWriter, r *http.Request) {
-	var req linkRequest
-	if err := httpx.Decode(w, r, &req); err != nil {
+func (r linkRequest) problems(needAccount bool) map[string]string {
+	p := map[string]string{}
+	if needAccount && strings.TrimSpace(r.IBKRAccountID) == "" {
+		p["ibkr_account_id"] = "El identificador de cuenta de IBKR es obligatorio."
+	}
+	if strings.TrimSpace(r.FlexQueryID) == "" {
+		p["flex_query_id"] = "El identificador de la Flex Query es obligatorio."
+	}
+	if strings.TrimSpace(r.FlexToken) == "" {
+		p["flex_token"] = "El token de Flex Web Service es obligatorio."
+	}
+	return p
+}
+
+func (h *Handler) link(w http.ResponseWriter, r *http.Request) {
+	var body linkRequest
+	if err := httpx.Decode(w, r, &body); err != nil {
 		httpx.Fail(w, r, err)
 		return
 	}
-
-	problems := map[string]string{}
-	if req.IBKRAccountID == "" {
-		problems["ibkr_account_id"] = "El identificador de cuenta de IBKR es obligatorio."
-	}
-	if req.FlexQueryID == "" {
-		problems["flex_query_id"] = "El identificador de la Flex Query es obligatorio."
-	}
-	if req.FlexToken == "" {
-		problems["flex_token"] = "El token de Flex Web Service es obligatorio."
-	}
-	if len(problems) > 0 {
-		httpx.Fail(w, r, httpx.Invalid(problems))
+	if p := body.problems(true); len(p) > 0 {
+		httpx.Fail(w, r, httpx.Invalid(p))
 		return
 	}
-
-	number := chi.URLParam(r, "number")
-	err := h.svc.SetLink(r.Context(), identity.MustFromContext(r.Context()),
-		number, req.IBKRAccountID, req.FlexQueryID, req.FlexToken)
+	account, err := h.svc.Link(r.Context(), identity.MustFromContext(r.Context()),
+		body.IBKRAccountID, body.FlexQueryID, body.FlexToken)
 	if err != nil {
+		httpx.Fail(w, r, translate(err))
+		return
+	}
+	httpx.JSON(w, r, http.StatusCreated, map[string]any{"account_id": account.ID})
+}
+
+func (h *Handler) relink(w http.ResponseWriter, r *http.Request) {
+	var body linkRequest
+	if err := httpx.Decode(w, r, &body); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	if p := body.problems(false); len(p) > 0 {
+		httpx.Fail(w, r, httpx.Invalid(p))
+		return
+	}
+	id, ok := accountID(w, r)
+	if !ok {
+		return
+	}
+	userID := identity.MustFromContext(r.Context())
+	current, err := h.svc.LinkStatus(r.Context(), userID, id)
+	if err != nil && !errors.Is(err, ErrNotLinked) {
+		httpx.Fail(w, r, translate(err))
+		return
+	}
+	ibkrAccount := current.IBKRAccountID
+	if ibkrAccount == "" {
+		a, err := h.svc.brokerage(r.Context(), userID, id)
+		if err != nil {
+			httpx.Fail(w, r, translate(err))
+			return
+		}
+		ibkrAccount = a.ExternalNumber
+	}
+	if _, err := h.svc.Link(r.Context(), userID, ibkrAccount, body.FlexQueryID, body.FlexToken); err != nil {
 		httpx.Fail(w, r, translate(err))
 		return
 	}
@@ -79,71 +115,73 @@ func (h *Handler) setLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) linkStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.svc.GetLinkStatus(r.Context(), identity.MustFromContext(r.Context()), chi.URLParam(r, "number"))
+	id, ok := accountID(w, r)
+	if !ok {
+		return
+	}
+	link, err := h.svc.LinkStatus(r.Context(), identity.MustFromContext(r.Context()), id)
 	if err != nil {
 		httpx.Fail(w, r, translate(err))
 		return
 	}
 	httpx.JSON(w, r, http.StatusOK, linkStatusView{
-		IBKRAccountID:  status.IBKRAccountID,
-		LastSyncedAt:   status.LastSyncedAt,
-		LastSyncStatus: status.LastSyncStatus,
-		LastSyncError:  status.LastSyncError,
+		IBKRAccountID: link.IBKRAccountID, LastSyncedAt: link.LastSyncedAt,
+		LastSyncStatus: link.LastSyncStatus, LastSyncError: link.LastSyncError,
 	})
 }
 
 func (h *Handler) sync(w http.ResponseWriter, r *http.Request) {
-	result, err := h.svc.Sync(r.Context(), identity.MustFromContext(r.Context()), chi.URLParam(r, "number"))
+	id, ok := accountID(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.svc.Sync(r.Context(), identity.MustFromContext(r.Context()), id)
 	if err != nil {
 		httpx.Fail(w, r, translate(err))
 		return
 	}
 	view := syncResultView{
-		CashMovementsPosted:       result.CashMovementsPosted,
-		CashMovementsSkipped:      result.CashMovementsSkipped,
-		CashMovementsFailedBefore: result.CashMovementsFailedBefore,
-		CashMovementsOtherAccount: result.CashMovementsOtherAccount,
-		TradesRecorded:            result.TradesRecorded,
-		TradesSkipped:             result.TradesSkipped,
-		Positions:                 result.Positions,
-		PeriodFrom:                civilDate(result.PeriodFrom),
-		PeriodTo:                  civilDate(result.PeriodTo),
-		MissingSections:           nonNil(result.MissingSections),
-		Warnings:                  nonNil(result.Warnings),
+		RunID: result.RunID, CashNew: result.CashNew, CashDuplicate: result.CashDuplicate,
+		CashFailed: result.CashFailed, TradesNew: result.TradesNew, TradesDuplicate: result.TradesDuplicate,
+		Positions: result.Positions, PeriodFrom: day(result.PeriodFrom), PeriodTo: day(result.PeriodTo),
+		MissingSections: nonNil(result.MissingSections), Warnings: nonNil(result.Warnings),
 	}
 	if !result.GeneratedAt.IsZero() {
 		view.GeneratedAt = &result.GeneratedAt
+	}
+	if result.ReportedCash != nil {
+		a := result.ReportedCash.Amount()
+		view.ReportedCash = &a
 	}
 	httpx.JSON(w, r, http.StatusOK, view)
 }
 
 func (h *Handler) portfolio(w http.ResponseWriter, r *http.Request) {
-	p, err := h.svc.Portfolio(r.Context(), identity.MustFromContext(r.Context()), chi.URLParam(r, "number"))
+	id, ok := accountID(w, r)
+	if !ok {
+		return
+	}
+	p, err := h.svc.Portfolio(r.Context(), identity.MustFromContext(r.Context()), id)
 	if err != nil {
 		httpx.Fail(w, r, translate(err))
 		return
 	}
-	httpx.JSON(w, r, http.StatusOK, portfolioView{
-		Cash:          p.Cash.Amount(),
-		HoldingsValue: p.HoldingsValue.Amount(),
-		// TotalValue is a convenience sum, but the two figures above are the
-		// ones to trust individually — see the package doc on why they come
-		// from different sources of truth.
-		TotalValue: p.Cash.Add(p.HoldingsValue).Amount(),
-		Positions:  newPositionViews(p.Positions),
-	})
-}
-
-func (h *Handler) positions(w http.ResponseWriter, r *http.Request) {
-	positions, err := h.svc.Positions(r.Context(), identity.MustFromContext(r.Context()), chi.URLParam(r, "number"))
-	if err != nil {
-		httpx.Fail(w, r, translate(err))
-		return
+	out := portfolioView{Holdings: p.Holdings.Amount(), Positions: make([]positionView, 0, len(p.Positions))}
+	for _, pos := range p.Positions {
+		out.Positions = append(out.Positions, positionView{
+			Symbol: pos.Symbol, AssetClass: pos.AssetClass, Quantity: pos.Quantity,
+			MarkPrice: amount(pos.MarkPrice), MarketValue: amount(pos.MarketValue), CostBasis: amount(pos.CostBasis),
+			AsOf: pos.AsOf,
+		})
 	}
-	httpx.JSON(w, r, http.StatusOK, positionsResponse{Positions: newPositionViews(positions)})
+	httpx.JSON(w, r, http.StatusOK, out)
 }
 
 func (h *Handler) trades(w http.ResponseWriter, r *http.Request) {
+	id, ok := accountID(w, r)
+	if !ok {
+		return
+	}
 	limit := 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -153,35 +191,47 @@ func (h *Handler) trades(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-
-	trades, err := h.svc.Trades(r.Context(), identity.MustFromContext(r.Context()), chi.URLParam(r, "number"), limit)
+	trades, err := h.svc.Trades(r.Context(), identity.MustFromContext(r.Context()), id, limit)
 	if err != nil {
 		httpx.Fail(w, r, translate(err))
 		return
 	}
-	httpx.JSON(w, r, http.StatusOK, tradesResponse{Trades: newTradeViews(trades)})
+	out := make([]tradeView, 0, len(trades))
+	for _, t := range trades {
+		out = append(out, newTradeView(t))
+	}
+	httpx.JSON(w, r, http.StatusOK, map[string]any{"trades": out})
 }
 
-// translate maps this package's and its collaborators' errors onto responses.
+func accountID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Fail(w, r, translate(ErrAccountNotFound))
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
 func translate(err error) error {
 	switch {
-	case errors.Is(err, ErrNotInvestmentAccount):
-		return httpx.BadRequest("not_investment_account",
-			"Esta operación solo aplica a cuentas de tipo investment.").WithCause(err)
+	case errors.Is(err, ErrAccountNotFound):
+		return httpx.NotFound("account_not_found", "La cuenta no existe.").WithCause(err)
+	case errors.Is(err, ErrNotBrokerage):
+		return httpx.BadRequest("not_brokerage_account", "Esta operación solo aplica a cuentas de inversión.").WithCause(err)
 	case errors.Is(err, ErrNotLinked):
-		return httpx.NotFound("ibkr_not_linked",
-			"Esta cuenta todavía no tiene una Flex Query de IBKR configurada.").WithCause(err)
+		return httpx.NotFound("ibkr_not_linked", "Esta cuenta todavía no tiene una Flex Query de IBKR configurada.").WithCause(err)
 	case errors.Is(err, ErrAccountMismatch):
 		return httpx.Unprocessable("ibkr_account_mismatch",
 			"La Flex Query devolvió el reporte de otra cuenta de IBKR. Revisa que el ID de la cuenta vinculada y la Flex Query correspondan a la misma cuenta.").WithCause(err)
 	case errors.Is(err, ErrEncryptionUnavailable):
-		return httpx.Internal(err)
+		return httpx.Unprocessable("ibkr_unavailable",
+			"La vinculación con IBKR no está habilitada en este servidor.").WithCause(err)
 	default:
-		return accounts.TranslateError(err)
+		return err
 	}
 }
 
-// --- response shapes ---------------------------------------------------------
+// --- response shapes --------------------------------------------------------
 
 type linkStatusView struct {
 	IBKRAccountID  string     `json:"ibkr_account_id"`
@@ -191,96 +241,58 @@ type linkStatusView struct {
 }
 
 type syncResultView struct {
-	CashMovementsPosted       int `json:"cash_movements_posted"`
-	CashMovementsSkipped      int `json:"cash_movements_skipped"`
-	CashMovementsFailedBefore int `json:"cash_movements_failed_before"`
-	CashMovementsOtherAccount int `json:"cash_movements_other_account"`
-	TradesRecorded            int `json:"trades_recorded"`
-	TradesSkipped             int `json:"trades_skipped"`
-	Positions                 int `json:"positions"`
-	// PeriodFrom and PeriodTo are civil dates (YYYY-MM-DD), omitted when the
-	// report does not carry them.
-	PeriodFrom      string     `json:"period_from,omitempty"`
-	PeriodTo        string     `json:"period_to,omitempty"`
-	GeneratedAt     *time.Time `json:"generated_at,omitempty"`
-	MissingSections []string   `json:"missing_sections"`
-	Warnings        []string   `json:"warnings"`
+	RunID           uuid.UUID     `json:"run_id"`
+	CashNew         int           `json:"cash_new"`
+	CashDuplicate   int           `json:"cash_duplicate"`
+	CashFailed      int           `json:"cash_failed"`
+	TradesNew       int           `json:"trades_new"`
+	TradesDuplicate int           `json:"trades_duplicate"`
+	Positions       int           `json:"positions"`
+	PeriodFrom      civil.Date    `json:"period_from"`
+	PeriodTo        civil.Date    `json:"period_to"`
+	GeneratedAt     *time.Time    `json:"generated_at,omitempty"`
+	ReportedCash    *money.Amount `json:"reported_cash,omitempty"`
+	MissingSections []string      `json:"missing_sections"`
+	Warnings        []string      `json:"warnings"`
 }
 
 type portfolioView struct {
-	Cash          money.Amount   `json:"cash"`
-	HoldingsValue money.Amount   `json:"holdings_value"`
-	TotalValue    money.Amount   `json:"total_value"`
-	Positions     []positionView `json:"positions"`
-}
-
-type positionsResponse struct {
+	Holdings  money.Amount   `json:"holdings"`
 	Positions []positionView `json:"positions"`
 }
 
 type positionView struct {
-	Symbol      string       `json:"symbol"`
-	AssetClass  string       `json:"asset_class"`
-	Quantity    float64      `json:"quantity"`
-	MarkPrice   money.Amount `json:"mark_price"`
-	MarketValue money.Amount `json:"market_value"`
-	CostBasis   money.Amount `json:"cost_basis"`
-	AsOf        time.Time    `json:"as_of"`
-}
-
-func newPositionViews(list []Position) []positionView {
-	out := make([]positionView, 0, len(list))
-	for _, p := range list {
-		out = append(out, positionView{
-			Symbol:      p.Symbol,
-			AssetClass:  p.AssetClass,
-			Quantity:    p.Quantity,
-			MarkPrice:   p.MarkPrice.Amount(),
-			MarketValue: p.MarketValue.Amount(),
-			CostBasis:   p.CostBasis.Amount(),
-			AsOf:        p.AsOf,
-		})
-	}
-	return out
-}
-
-type tradesResponse struct {
-	Trades []tradeView `json:"trades"`
+	Symbol      string        `json:"symbol"`
+	AssetClass  string        `json:"asset_class"`
+	Quantity    float64       `json:"quantity"`
+	MarkPrice   *money.Amount `json:"mark_price,omitempty"`
+	MarketValue *money.Amount `json:"market_value,omitempty"`
+	CostBasis   *money.Amount `json:"cost_basis,omitempty"`
+	AsOf        civil.Date    `json:"as_of"`
 }
 
 type tradeView struct {
-	Symbol     string       `json:"symbol"`
-	AssetClass string       `json:"asset_class"`
-	Side       string       `json:"side"`
-	Quantity   float64      `json:"quantity"`
-	Price      money.Amount `json:"price"`
-	Commission money.Amount `json:"commission"`
-	NetCash    money.Amount `json:"net_cash"`
-	TradeDate  time.Time    `json:"trade_date"`
+	ExternalRef string       `json:"id"`
+	Symbol      string       `json:"symbol"`
+	AssetClass  string       `json:"asset_class"`
+	Side        string       `json:"side"`
+	Quantity    float64      `json:"quantity"`
+	Price       money.Amount `json:"price"`
+	Commission  money.Amount `json:"commission"`
+	NetCash     money.Amount `json:"net_cash"`
+	TradeDate   civil.Date   `json:"trade_date"`
 }
 
-func newTradeViews(list []Trade) []tradeView {
-	out := make([]tradeView, 0, len(list))
-	for _, t := range list {
-		out = append(out, tradeView{
-			Symbol:     t.Symbol,
-			AssetClass: t.AssetClass,
-			Side:       t.Side,
-			Quantity:   t.Quantity,
-			Price:      t.Price.Amount(),
-			Commission: t.Commission.Amount(),
-			NetCash:    t.NetCash.Amount(),
-			TradeDate:  t.TradeDate,
-		})
-	}
-	return out
+func newTradeView(t store.Trade) tradeView {
+	return tradeView{ExternalRef: t.ExternalRef, Symbol: t.Symbol, AssetClass: t.AssetClass, Side: t.Side,
+		Quantity: t.Quantity, Price: t.Price.Amount(), Commission: t.Commission.Amount(),
+		NetCash: t.NetCash.Amount(), TradeDate: t.TradeDate}
 }
 
-// nonNil keeps an empty list serialising as [] rather than null, so the
-// client can iterate it without a guard.
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
+func amount(c *money.Cents) *money.Amount {
+	if c == nil {
+		return nil
 	}
-	return s
+	a := c.Amount()
+	return &a
 }

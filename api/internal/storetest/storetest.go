@@ -120,3 +120,11 @@ func dropDatabase(t testing.TB, base, name string) {
 		t.Logf("storetest: could not drop %s: %v", name, err)
 	}
 }
+
+// Exec runs raw SQL against db, for a test asserting what the schema itself
+// allows. It returns the error instead of failing, since refusals are usually
+// the point.
+func Exec(t testing.TB, db *store.DB, sql string, args ...any) error {
+	t.Helper()
+	return db.Exec(context.Background(), sql, args...)
+}
