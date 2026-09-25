@@ -71,9 +71,8 @@ func NewService(db *store.DB, book ledger.Ledger) *Service {
 // numberAttempts bounds the retry loop that looks for a free account number.
 const numberAttempts = 5
 
-// maxAccountsPerCustomer caps how many accounts one person may hold. The seeded
-// dataset's busiest customer has three, so this leaves room to open more without
-// making the limit feel arbitrary.
+// maxAccountsPerCustomer caps how many accounts one person may hold: room for a
+// few real accounts without letting one registration open an unbounded number.
 const maxAccountsPerCustomer = 6
 
 // Open creates an account for a user: a row in PostgreSQL and the matching

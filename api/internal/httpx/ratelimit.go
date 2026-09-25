@@ -10,8 +10,8 @@ import (
 // RateLimiter is a fixed-capacity token bucket per key, refilling continuously.
 //
 // In-memory and per-process on purpose. A shared limiter would need Redis, which
-// is a service the evaluator would have to run for a feature that protects a
-// single-instance deployment; the honest tradeoff is stated rather than hidden —
+// is one more service to run for a feature that protects a single-instance
+// deployment; the honest tradeoff is stated rather than hidden —
 // behind N replicas the effective limit is N times the configured one.
 //
 // A bucket rather than a counter per fixed window because a window boundary

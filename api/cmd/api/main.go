@@ -235,15 +235,14 @@ const chatMessagesPerMinute = 6
 // selectProvider picks the engine behind the assistant.
 //
 // A missing API key must never stop the process from booting or make the chat
-// return an error: the evaluator's first run has no credentials, and an
+// return an error: a fresh clone has no credentials, and an
 // application where one feature crashes the page is worse than one where it is
 // honestly labelled. So the fallback drives the same MCP tools through the same
 // loop, and the interface says which engine answered.
 //
 // When a key *is* present, the model never gets called directly. It goes behind the
 // spend ceilings, because this deployment is public and the key on it is somebody's
-// actual money: registration is open and the test credentials are in the README, so
-// without a ceiling the budget is whatever a stranger decides to spend. The wrapper
+// actual money: registration is open, so without a ceiling the budget is whatever a stranger decides to spend. The wrapper
 // also means the assistant degrades to rules when the money or the key runs out,
 // rather than telling customers to "try again in a moment" forever.
 func selectProvider(db *store.DB, cfg config.AIConfig, logger *slog.Logger) llm.Provider {

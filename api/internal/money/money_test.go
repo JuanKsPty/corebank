@@ -11,8 +11,7 @@ func TestParse(t *testing.T) {
 		in   string
 		want Cents
 	}{
-		// Shapes that appear in the seed dataset, which carries one or two
-		// decimal places.
+		// Shapes real amounts take: one or two decimal places.
 		{"32354.53", 3235453},
 		{"249.84", 24984},
 		{"49982.36", 4998236},
@@ -131,7 +130,7 @@ func TestRoundTrip(t *testing.T) {
 // TestFloatMultiplicationIsUnsafe documents *why* Parse works on text.
 //
 // The naive conversion — read the JSON number as a float64 and multiply by 100
-// — truncates on values that occur in the real dataset. This test pins that
+// — truncates on ordinary amounts. This test pins that
 // difference so nobody "simplifies" Parse into the broken version later.
 func TestFloatMultiplicationIsUnsafe(t *testing.T) {
 	cases := []struct {
@@ -160,11 +159,11 @@ func TestFloatMultiplicationIsUnsafe(t *testing.T) {
 	}
 }
 
-// TestSeedDatasetPrecision asserts the invariant the seeder depends on: every
-// amount in the fixture has at most two decimal places, so the conversion to
-// cents is lossless and the seeded balances can match the fixture exactly.
-func TestSeedDatasetPrecision(t *testing.T) {
-	// Representative values sampled across the dataset's observed range.
+// TestParseRoundTripsTwoDecimalAmounts asserts that an amount with at most two
+// decimal places converts to cents losslessly, so a balance built from such
+// amounts matches its source exactly.
+func TestParseRoundTripsTwoDecimalAmounts(t *testing.T) {
+	// Representative values across a realistic range.
 	for _, s := range []string{"249.84", "49982.36", "10.54", "4999.65", "1633.5", "32354.53"} {
 		c, err := Parse(s)
 		if err != nil {

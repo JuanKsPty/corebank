@@ -77,7 +77,7 @@ export function Figure({
  * moment the assistant reserved money and the customer needs to see it happen.
  *
  * The held segment has a floor, and it needs one. A hold is usually a small fraction
- * of a balance: reserving $250 against this dataset's largest account, $85,047, is
+ * of a balance: reserving $250 against an $85,047 balance is
  * 0.294%, which on a 576px bar is 1.7px — the element that exists to make a
  * reservation visible would render it as a speck indistinguishable from a rendering
  * artefact, and widening the bar makes that worse rather than better because the

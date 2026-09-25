@@ -195,7 +195,7 @@ export function counterpartyLabel(accountNumber: string | undefined): string {
  * over the rule dividing the debit and credit sides. That was the bug.
  *
  * Widening the column is not the fix: it would have to grow by a third to hold a
- * string whose leading twelve digits are the same on every row in the dataset. The
+ * string whose leading twelve digits are the same on every row. The
  * last four are what a person reads to tell two of their accounts apart, they are
  * what the account cards already show, and they need 7 glyphs ≈ 50px. The full
  * number stays one hover or one tap away.

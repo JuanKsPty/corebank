@@ -118,7 +118,7 @@ export interface Flow {
   to: string
   /**
    * False when the window had to move back to the customer's most recent activity —
-   * which is what the imported dataset produces, since its history ends in 2024.
+   * which is what an account whose history ends earlier produces.
    * The chart labels the period rather than claiming "last 30 days".
    */
   recent: boolean

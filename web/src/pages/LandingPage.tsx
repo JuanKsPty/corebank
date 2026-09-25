@@ -9,38 +9,11 @@ import { gutter } from '@/lib/layout'
 import { cn } from '@/lib/utils'
 
 /**
- * The public front door.
+ * The public front door: what the app is for, and the two ways in.
  *
- * The root used to redirect: to the login if you were signed out, to your accounts if
- * you were not. That made `/` a URL nobody could link to, and left the product with no
- * page that says what it is.
- *
- * The copy is about what somebody can do here, not about how it is built. The previous
- * version was the opposite: it opened on "cada movimiento tiene dos lados" — an
- * accounting truism that sounds like insight and tells a visitor nothing — then said
- * balances are "derived from a double-entry ledger rather than stored in a column", and
- * offered "no amount passes through a float" as a selling point. Four mentions of the
- * ledger and two of integer cents, every claim about the implementation and none about
- * the product. Nobody chose a bank for its storage model. That is the padding this page
- * was asked to lose, and the technical detail belongs where it now sits: one quiet line
- * in the footer, as evidence rather than as the pitch.
- *
- * What stays is the demonstration, because it shows instead of telling. Reserving is
- * what happens when you ask the assistant to move money — the funds leave the spendable
- * total, arrive nowhere, and wait for you — and this is the real component from the real
- * application, the same one on screen a minute later once somebody signs in.
- *
- * The headline states the two true things and neither of them is a phrase: this is an
- * online bank, and the data in it is invented. An earlier attempt opened on "tus
- * cuentas, y alguien que las opera contigo", which reads well and commits to nothing —
- * bank-marketing voice with the padding removed but the register intact. A demo whose
- * front page performs is still performing.
- *
- * Saying it is a demo in the footer was also still hiding it, so the caveat is in the
- * headline in softer ink. And the primary action is now getting in with the seeded
- * account rather than filling a registration form: somebody evaluating this should not
- * have to invent an identity before they can see a balance, and the link carries state
- * that fills the sign-in form, so the button costs the one click it advertises.
+ * The copy is about what somebody can do here, not about how it is built — nobody
+ * picks a finance app for its storage model. The stack gets one quiet line in the
+ * footer, as evidence rather than as the pitch.
  */
 export function LandingPage() {
   return (
@@ -59,17 +32,13 @@ export function LandingPage() {
       <main className={cn('flex flex-1 flex-col justify-center py-10 md:py-14', gutter)}>
         <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-16">
           <div>
-            {/* The caveat is in the headline, in softer ink, rather than in a badge
-                somewhere below it. It is the second most important true thing about
-                this page and hiding it in the footer was still hiding it. */}
             <h1 className="type-display max-w-[19ch] text-[clamp(2rem,5.2vw,3.5rem)]">
-              Esto es un banco en línea.{' '}
-              <span className="text-ink-faint">Los datos son ficticios.</span>
+              Tus cuentas, tarjetas e inversiones{' '}
+              <span className="text-ink-faint">en un solo lugar.</span>
             </h1>
             <p className="mt-5 max-w-[46ch] text-[1.0625rem] leading-relaxed text-ink-soft">
-              Todo lo demás funciona. Consulta saldos, transfiere entre cuentas y revisa tu
-              historial, o pídeselo al asistente en español: él prepara el movimiento y
-              espera a que tú lo confirmes.
+              Importa los estados de cuenta de tu banco, sincroniza tu cuenta de IBKR y
+              pregúntale al asistente, en español, cuánto gastaste y en qué.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -90,12 +59,8 @@ export function LandingPage() {
         </div>
       </main>
 
-      {/* The size of the dataset, because "ficticios" invites the question of how
-          much of it there is, and the answer is more interesting than the adjective.
-          The stack sits alongside as evidence for whoever wants it. */}
       <footer className={cn('border-t border-rule py-5', gutter)}>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[0.75rem]">
-          <p className="text-ink-soft">1000 clientes, 1605 cuentas y 6429 movimientos.</p>
           <p className="text-ink-faint">Go · TigerBeetle · React · asistente por MCP</p>
         </div>
       </footer>

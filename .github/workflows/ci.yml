@@ -159,6 +159,24 @@ jobs:
           fi
           echo "no API keys found in tracked files"
 
+      # Private working notes live in info/, which is gitignored. This keeps their
+      # wording out of tracked files too, where a stray paste would be public. The
+      # terms are a repository variable rather than written here, because a list of
+      # words that must not appear in this repository would itself appear in it.
+      - name: no private context in tracked files
+        env:
+          PRIVATE_TERMS: ${{ vars.PRIVATE_TERMS }}
+        run: |
+          if [ -z "$PRIVATE_TERMS" ]; then
+            echo "::warning::PRIVATE_TERMS is not set; skipping"
+            exit 0
+          fi
+          if git grep -nIiE "$PRIVATE_TERMS" -- .; then
+            echo "::error::a tracked file mentions private context; keep it in info/"
+            exit 1
+          fi
+          echo "no private context found in tracked files"
+
       # An .env is how the key reaches a container locally, so it must never be
       # tracked. .gitignore covers it; this checks that the ignore rule was not
       # bypassed with `git add -f`.

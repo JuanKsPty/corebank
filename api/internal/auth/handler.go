@@ -184,8 +184,8 @@ func (req registerRequest) validate() (RegisterInput, map[string]string) {
 		problems["full_name"] = "El nombre es demasiado largo."
 	}
 
-	// The first account defaults to a savings account, which is what most of the
-	// dataset uses, so the field is optional on the form.
+	// The first account defaults to a savings account, so the field is optional
+	// on the form.
 	kind := ledger.KindSavings
 	if req.AccountType != "" {
 		parsed, err := ledger.ParseAccountKind(req.AccountType)

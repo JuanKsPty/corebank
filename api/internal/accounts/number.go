@@ -13,8 +13,7 @@ import (
 )
 
 // numberPrefix is the bank's own identifier, the first group of every account
-// number. It matches the provided dataset so seeded and newly opened accounts
-// are indistinguishable in the interface.
+// number, so every account corebank opens reads the same in the interface.
 const numberPrefix = "4001"
 
 // GenerateNumber returns an account number in the form 4001-NNNN-NNNN-NNNN.

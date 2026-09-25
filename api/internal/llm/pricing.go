@@ -44,8 +44,7 @@ func usd(dollars, cents int64) int64 {
 }
 
 // sonnet5IntroEnds is when Sonnet 5's launch pricing lapses. Until then it is
-// $2/$10 per million rather than $3/$15 — which is the whole evaluation window for
-// this project, and the reason the numbers in the README are what they are.
+// $2/$10 per million rather than $3/$15.
 var sonnet5IntroEnds = time.Date(2026, 8, 31, 23, 59, 59, 0, time.UTC)
 
 // rates is every model this application might be pointed at.

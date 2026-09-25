@@ -77,8 +77,8 @@ export const COLUMNS: Column[] = [
   {
     key: 'debit',
     label: 'Cargo',
-    // 7.5rem = 120px, less 24px = 96px. The largest amount the dataset produces is
-    // "$32,354.53" at 10 glyphs ≈ 72px; six figures would still fit.
+    // 7.5rem = 120px, less 24px = 96px. A five-figure amount such as
+    // "$32,354.53" is 10 glyphs ≈ 72px; six figures would still fit.
     width: 'w-[7.5rem]',
     align: 'right',
     dividesSides: true,
