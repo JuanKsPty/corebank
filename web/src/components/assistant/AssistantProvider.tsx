@@ -52,6 +52,18 @@ export interface Turn {
 export const TOOL_LABELS: Record<string, string> = {
   list_accounts: 'Consultó tus cuentas',
   list_movements: 'Consultó tus movimientos',
+  list_categories: 'Consultó tus categorías',
+  spending_by_category: 'Sumó tus gastos por categoría',
+  cash_flow: 'Revisó tus entradas y salidas',
+  explain_drift: 'Revisó por qué no cuadra',
+  list_transfer_suggestions: 'Buscó transferencias sin confirmar',
+  get_portfolio: 'Consultó tus inversiones',
+  list_rules: 'Consultó tus reglas',
+  propose_recategorize: 'Propuso una categoría',
+  propose_note: 'Propuso una nota',
+  propose_rule: 'Propuso una regla',
+  propose_transfer_decision: 'Propuso una transferencia',
+  propose_checkpoint: 'Propuso un saldo',
 }
 
 interface AssistantContextValue {
@@ -194,9 +206,10 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
           setStreaming(false)
           setActiveTool(null)
           abortRef.current = null
-          // The assistant reads but cannot write yet; the chat history is what
-          // changed.
+          // The assistant never writes; what changed is the history and, if it
+          // proposed something, the proposals waiting for the owner.
           void queryClient.invalidateQueries({ queryKey: keys.chat })
+          void queryClient.invalidateQueries({ queryKey: keys.proposals })
         }
       })()
     },
@@ -300,6 +313,10 @@ function applyEvent(
 
     case 'error':
       update((turn) => ({ ...turn, error: event.message }))
+      break
+
+    case 'proposal':
+      // Rendered from the proposals query, which the end of the exchange refreshes.
       break
 
     case 'done':

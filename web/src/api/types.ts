@@ -332,6 +332,12 @@ export type ChatEvent =
   | { kind: 'tool_call'; tool: string }
   | { kind: 'tool_result'; tool: string; failed?: boolean }
   | { kind: 'error'; code: string; message: string }
+  // A change the assistant proposed; nothing is changed until the owner applies it.
+  | {
+      kind: 'proposal'
+      tool: string
+      proposal: { proposal_id: string; kind: string; summary: string }
+    }
   // The closing event carries which engine actually answered. It can differ from
   // what the page was told on load — a spend ceiling reached mid-session, a key
   // that stopped working — and a label that only refreshes with the page would
@@ -444,4 +450,16 @@ export interface CategoryRule {
   transfer: boolean
   priority: number
   applied?: number
+}
+
+// --- proposals -------------------------------------------------------------------
+
+/** A change the assistant proposed, waiting for the owner to apply or discard it. */
+export interface Proposal {
+  id: string
+  kind: 'recategorize' | 'note' | 'rule' | 'transfer_decision' | 'checkpoint'
+  /** Written by the server from the change itself, never by the model. */
+  summary: string
+  status: 'pending' | 'applied' | 'rejected'
+  expires_at: string
 }

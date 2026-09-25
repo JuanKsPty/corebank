@@ -11,6 +11,7 @@ import type {
   EntryKind,
   EntryPage,
   FlowPoint,
+  Proposal,
   Entry,
   ImportResult,
   ImportRun,
@@ -244,6 +245,16 @@ export const updateRule = (id: string, input: RuleInput) =>
 
 export const deleteRule = (id: string) =>
   request<void>(`/api/category-rules/${encodeURIComponent(id)}`, { method: 'DELETE' })
+
+// --- proposals -----------------------------------------------------------------
+
+export const fetchProposals = () => request<{ proposals: Proposal[] }>('/api/proposals')
+
+export const applyProposal = (id: string) =>
+  request<Proposal>(`/api/proposals/${encodeURIComponent(id)}/apply`, { method: 'POST' })
+
+export const rejectProposal = (id: string) =>
+  request<Proposal>(`/api/proposals/${encodeURIComponent(id)}/reject`, { method: 'POST' })
 
 // --- chat -------------------------------------------------------------------
 

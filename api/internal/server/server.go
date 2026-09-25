@@ -27,6 +27,7 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/imports"
 	"github.com/JuanKsPty/corebank/api/internal/investments"
 	"github.com/JuanKsPty/corebank/api/internal/movements"
+	"github.com/JuanKsPty/corebank/api/internal/proposals"
 	"github.com/JuanKsPty/corebank/api/internal/reports"
 	"github.com/JuanKsPty/corebank/api/internal/rules"
 	"github.com/JuanKsPty/corebank/api/internal/transfers"
@@ -52,6 +53,7 @@ type Deps struct {
 	Reports     *reports.Handler
 	Transfers   *transfers.Handler
 	Rules       *rules.Handler
+	Proposals   *proposals.Handler
 	Chat        *chat.Handler
 }
 
@@ -93,6 +95,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Mount("/reports", d.Reports.Routes())
 			r.Mount("/transfers", d.Transfers.Routes())
 			r.Mount("/category-rules", d.Rules.Routes())
+			r.Mount("/proposals", d.Proposals.Routes())
 			r.Mount("/chat", d.Chat.Routes())
 		})
 

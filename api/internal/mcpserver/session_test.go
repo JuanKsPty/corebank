@@ -61,7 +61,9 @@ func TestEveryToolIsPublishedWithASchemaAndDescription(t *testing.T) {
 	}
 
 	for _, name := range []string{
-		ToolListAccounts, ToolListMovements,
+		ToolListAccounts, ToolListMovements, ToolListCategories, ToolSpending, ToolCashFlow,
+		ToolExplainDrift, ToolTransferSuggest, ToolPortfolio, ToolListRules,
+		ToolProposeCategory, ToolProposeNote, ToolProposeRule, ToolProposeTransfer, ToolProposeCheckpoint,
 	} {
 		spec, ok := byName[name]
 		if !ok {
@@ -77,14 +79,16 @@ func TestEveryToolIsPublishedWithASchemaAndDescription(t *testing.T) {
 			t.Errorf("tool %s has no input schema", name)
 		}
 	}
-	if len(specs) != 2 {
-		t.Errorf("the server publishes %d tools, want 2 — a new one needs a test here", len(specs))
+	if len(specs) != 14 {
+		t.Errorf("the server publishes %d tools, want 14 — a new one needs a test here", len(specs))
 	}
 }
 
 func TestNoToolMovesMoney(t *testing.T) {
 	// Every movement comes from a statement or a brokerage sync. A tool whose
-	// name says it moves money means that rule was broken, whatever the tool does.
+	// verb — the first word of its name — says it moves money means that rule
+	// was broken, whatever the tool does. Listing transfer suggestions or
+	// proposing a transfer decision reads or proposes; it moves nothing.
 	specs, err := openOffline(t).Tools(context.Background())
 	if err != nil {
 		t.Fatalf("Tools: %v", err)
@@ -92,10 +96,9 @@ func TestNoToolMovesMoney(t *testing.T) {
 	verbs := map[string]bool{"deposit": true, "withdraw": true, "withdrawal": true, "transfer": true,
 		"pay": true, "payment": true, "send": true, "move": true}
 	for _, spec := range specs {
-		for _, word := range strings.Split(strings.ToLower(spec.Name), "_") {
-			if verbs[word] {
-				t.Errorf("tool %s looks like it moves money (%q)", spec.Name, word)
-			}
+		verb, _, _ := strings.Cut(strings.ToLower(spec.Name), "_")
+		if verbs[verb] {
+			t.Errorf("tool %s looks like it moves money (%q)", spec.Name, verb)
 		}
 	}
 }
