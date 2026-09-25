@@ -22,6 +22,7 @@ export const keys = {
   accounts: ['accounts'] as const,
   account: (id: string) => ['account', id] as const,
   checkpoints: (id: string) => ['checkpoints', id] as const,
+  reconciliation: (id: string) => ['reconciliation', id] as const,
   entries: (query: EntryQuery) => ['entries', query] as const,
   importRuns: (id: string) => ['import-runs', id] as const,
   chat: ['chat'] as const,
@@ -108,6 +109,14 @@ export function usePinCheckpoint(accountId: string) {
   return useMutation({
     mutationFn: (checkpointId: string | null) => api.pinCheckpoint(accountId, checkpointId),
     onSuccess: invalidate,
+  })
+}
+
+export function useReconciliation(accountId: string, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: keys.reconciliation(accountId),
+    queryFn: () => api.fetchReconciliation(accountId),
+    enabled: options.enabled ?? true,
   })
 }
 

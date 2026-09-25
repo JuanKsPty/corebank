@@ -366,3 +366,49 @@ export interface StatementFileReport {
   source: 'bg_account' | 'bac_account' | 'bg_card'
   statements: StatementReport[]
 }
+
+// --- reconciliation ------------------------------------------------------------
+
+export interface ReconciliationCheck {
+  checkpoint: Checkpoint
+  computed: Amount
+  /** stated − computed. */
+  difference: Amount
+}
+
+export interface StatementCheck {
+  id: string
+  period_start: string
+  period_end: string
+  line_count: number
+  opening?: ReconciliationCheck
+  closing?: ReconciliationCheck
+  /** This statement starts more than a day after the previous one ends. */
+  gap: boolean
+  warnings: string[]
+}
+
+export interface ReconciliationLine {
+  id: string
+  booked_on: string
+  description: string
+  amount: Amount
+  /** The running balance the movements add up to. */
+  computed: Amount
+  /** The running balance the bank printed, when it prints one. */
+  bank?: Amount
+  /** bank − computed. */
+  difference?: Amount
+}
+
+/** Where an account stops matching its bank, if it does. */
+export interface Reconciliation {
+  account: Account
+  anchor?: Checkpoint
+  opening: Amount
+  checks: ReconciliationCheck[]
+  statements: StatementCheck[]
+  lines: ReconciliationLine[]
+  /** The line where the difference with the bank starts. */
+  first_break?: string
+}
