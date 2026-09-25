@@ -15,6 +15,7 @@ import { CheckpointDialog } from '@/components/CheckpointDialog'
 import { EntryList } from '@/components/EntryList'
 import { ImportStatementDialog } from '@/components/ImportStatementDialog'
 import { LinkIBKRDialog } from '@/components/LinkIBKRDialog'
+import { ReconciliationPanel } from '@/components/ReconciliationPanel'
 import { Figure } from '@/components/primitives'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -90,6 +91,7 @@ export function AccountPage() {
 
       {a && <Actions account={a} />}
       {a && a.type === 'brokerage' && <InvestmentPanel account={a} />}
+      {a && a.movements > 0 && <ReconciliationPanel account={a} />}
       {a && <Checkpoints account={a} />}
       {a && <Movements account={a} />}
       {a && <DangerZone account={a} />}

@@ -36,6 +36,7 @@ func (h *Handler) Routes(entries http.HandlerFunc) http.Handler {
 	r.Post("/{id}/checkpoints", h.addCheckpoint)
 	r.Delete("/{id}/checkpoints/{checkpoint}", h.deleteCheckpoint)
 	r.Put("/{id}/anchor", h.pin)
+	r.Get("/{id}/reconciliation", h.reconciliation)
 	return r
 }
 
@@ -239,6 +240,20 @@ func (h *Handler) pin(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, r, http.StatusOK, NewView(a))
 }
 
+func (h *Handler) reconciliation(w http.ResponseWriter, r *http.Request) {
+	id, err := AccountID(r)
+	if err != nil {
+		httpx.Fail(w, r, TranslateError(err))
+		return
+	}
+	rec, err := h.svc.Reconcile(r.Context(), identity.MustFromContext(r.Context()), id)
+	if err != nil {
+		httpx.Fail(w, r, TranslateError(err))
+		return
+	}
+	httpx.JSON(w, r, http.StatusOK, newReconciliationView(rec))
+}
+
 // TranslateError maps this package's errors to HTTP responses.
 func TranslateError(err error) error {
 	switch {
@@ -368,6 +383,90 @@ func NewCheckpointView(c store.Checkpoint) CheckpointView {
 	if c.MinimumPayment != nil {
 		m := c.MinimumPayment.Amount()
 		v.MinimumPayment = &m
+	}
+	return v
+}
+
+// ReconciliationView is a reconciliation on the wire.
+type ReconciliationView struct {
+	Account    View                 `json:"account"`
+	Anchor     *CheckpointView      `json:"anchor,omitempty"`
+	Opening    money.Amount         `json:"opening"`
+	Checks     []CheckView          `json:"checks"`
+	Statements []StatementCheckView `json:"statements"`
+	Lines      []LineView           `json:"lines"`
+	FirstBreak *uuid.UUID           `json:"first_break,omitempty"`
+}
+
+// CheckView is a stated balance against the computed one.
+type CheckView struct {
+	Checkpoint CheckpointView `json:"checkpoint"`
+	Computed   money.Amount   `json:"computed"`
+	Difference money.Amount   `json:"difference"`
+}
+
+// StatementCheckView is one statement's balances against the computed ones.
+type StatementCheckView struct {
+	ID          uuid.UUID  `json:"id"`
+	PeriodStart civil.Date `json:"period_start"`
+	PeriodEnd   civil.Date `json:"period_end"`
+	LineCount   int        `json:"line_count"`
+	Opening     *CheckView `json:"opening,omitempty"`
+	Closing     *CheckView `json:"closing,omitempty"`
+	Gap         bool       `json:"gap"`
+	Warnings    []string   `json:"warnings"`
+}
+
+// LineView is one movement with its running balances.
+type LineView struct {
+	ID          uuid.UUID     `json:"id"`
+	BookedOn    civil.Date    `json:"booked_on"`
+	Description string        `json:"description"`
+	Amount      money.Amount  `json:"amount"`
+	Computed    money.Amount  `json:"computed"`
+	Bank        *money.Amount `json:"bank,omitempty"`
+	Difference  *money.Amount `json:"difference,omitempty"`
+}
+
+func newCheckView(c *Check) *CheckView {
+	if c == nil {
+		return nil
+	}
+	return &CheckView{Checkpoint: NewCheckpointView(c.Checkpoint), Computed: c.Computed.Amount(),
+		Difference: c.Difference().Amount()}
+}
+
+func newReconciliationView(r Reconciliation) ReconciliationView {
+	v := ReconciliationView{Account: NewView(r.Account), Opening: r.Opening.Amount(), FirstBreak: r.FirstBreak,
+		Checks: []CheckView{}, Statements: []StatementCheckView{}, Lines: []LineView{}}
+	if r.Anchor != nil {
+		a := NewCheckpointView(*r.Anchor)
+		v.Anchor = &a
+	}
+	for i := range r.Checks {
+		v.Checks = append(v.Checks, *newCheckView(&r.Checks[i]))
+	}
+	for _, s := range r.Statements {
+		warnings := s.Statement.Warnings
+		if warnings == nil {
+			warnings = []string{}
+		}
+		v.Statements = append(v.Statements, StatementCheckView{ID: s.Statement.ID, PeriodStart: s.Statement.PeriodStart,
+			PeriodEnd: s.Statement.PeriodEnd, LineCount: s.Statement.LineCount, Opening: newCheckView(s.Opening),
+			Closing: newCheckView(s.Closing), Gap: s.Gap, Warnings: warnings})
+	}
+	for _, l := range r.Lines {
+		lv := LineView{ID: l.Entry.ID, BookedOn: l.Entry.BookedOn, Description: l.Entry.Description,
+			Amount: l.Entry.Amount.Amount(), Computed: l.Computed.Amount()}
+		if l.Entry.BankBalance != nil {
+			b := l.Entry.BankBalance.Amount()
+			lv.Bank = &b
+		}
+		if l.Difference != nil {
+			d := l.Difference.Amount()
+			lv.Difference = &d
+		}
+		v.Lines = append(v.Lines, lv)
 	}
 	return v
 }

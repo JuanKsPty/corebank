@@ -16,6 +16,7 @@ import type {
   InvestmentTrade,
   Me,
   Portfolio,
+  Reconciliation,
   SecurityStatus,
   Session,
   StatementFileReport,
@@ -126,6 +127,9 @@ export const pinCheckpoint = (accountId: string, checkpointId: string | null) =>
     method: 'PUT',
     body: { checkpoint_id: checkpointId },
   })
+
+export const fetchReconciliation = (accountId: string) =>
+  request<Reconciliation>(`/api/accounts/${encodeURIComponent(accountId)}/reconciliation`)
 
 // --- movements --------------------------------------------------------------
 

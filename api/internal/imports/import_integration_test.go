@@ -277,3 +277,60 @@ func TestRulesCategoriseAndOneUserNeverSeesAnothersData(t *testing.T) {
 		t.Errorf("a stranger sees %d movements", len(got))
 	}
 }
+
+func TestReconciliationPointsAtTheLineAfterAMissingOne(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	// One export holds the 1st; the next starts on the 3rd, so the 2nd's
+	// +20.00 was never imported.
+	e.importFile(t, "a.xlsx", bgFile(t, []bgRow{{day: 1, desc: "A", debit: -12.5, balance: 87.5}}))
+	r := e.importFile(t, "b.xlsx", bgFile(t, []bgRow{
+		{day: 3, desc: "C", debit: -7.5, balance: 100},
+		{day: 4, desc: "D", credit: 5, balance: 105},
+	}))
+	rec, err := e.accounts.Reconcile(ctx, e.user, r.Accounts[0].AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.FirstBreak == nil {
+		t.Fatal("no first break found")
+	}
+	var first accounts.Line
+	for _, l := range rec.Lines {
+		if l.Entry.ID == *rec.FirstBreak {
+			first = l
+		}
+	}
+	if first.Entry.Description != "C" || first.Difference == nil || *first.Difference != 2000 {
+		t.Errorf("first break = %q with difference %v; want line C, +20.00", first.Entry.Description, first.Difference)
+	}
+	if len(rec.Statements) != 2 || !rec.Statements[1].Gap {
+		t.Errorf("statements = %+v, want the second flagged as starting after a gap", rec.Statements)
+	}
+	if o := rec.Statements[1].Opening; o == nil || o.Difference() != 2000 {
+		t.Errorf("second statement's opening check = %+v, want 20.00 off", o)
+	}
+	if c := rec.Statements[0].Closing; c == nil || c.Difference() != 0 {
+		t.Errorf("first statement's closing check = %+v, want it to match", c)
+	}
+}
+
+func TestReconciliationIsQuietWhenEverythingMatches(t *testing.T) {
+	e := setup(t)
+	r := e.importFile(t, "a.xlsx", bgFile(t, []bgRow{
+		{day: 1, desc: "A", debit: -12.5, balance: 87.5},
+		{day: 2, desc: "B", credit: 20, balance: 107.5},
+	}))
+	rec, err := e.accounts.Reconcile(context.Background(), e.user, r.Accounts[0].AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.FirstBreak != nil {
+		t.Errorf("FirstBreak = %v on a statement that adds up", rec.FirstBreak)
+	}
+	for _, c := range rec.Checks {
+		if c.Difference() != 0 {
+			t.Errorf("check %s is off by %s", c.Checkpoint.Source, c.Difference())
+		}
+	}
+}
