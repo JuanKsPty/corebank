@@ -1,5 +1,4 @@
 import {
-  ArrowLeftRightIcon,
   HouseIcon,
   ReceiptTextIcon,
   SparklesIcon,
@@ -42,7 +41,6 @@ export const NAV: NavItem[] = [
     icon: SparklesIcon,
     assistant: true,
   },
-  { to: '/mover', label: 'Mover dinero', short: 'Mover', icon: ArrowLeftRightIcon },
   { to: '/historial', label: 'Historial', short: 'Historial', icon: ReceiptTextIcon },
 ]
 

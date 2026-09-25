@@ -1,12 +1,10 @@
 // Package llm is the boundary between the assistant and whatever produces its
 // replies.
 //
-// One interface with two implementations. Anthropic drives it when an API key is
-// configured; a small deterministic interpreter drives it when none is, so the
-// MCP tools and the confirmation flow stay demonstrable on a machine with no
-// credentials. Which one is in use is reported to the interface and shown to the
-// customer, because a rule-based fallback presented as an AI assistant would be a
-// lie about the product.
+// Anthropic implements it when an API key is configured; when none is, the chat
+// package's Unavailable stand-in says the assistant is off. Which one is in use
+// is reported to the interface and shown to the person, so an answer is never
+// passed off as coming from a model that did not write it.
 //
 // The interface is deliberately narrow — one round of "here is the conversation
 // and the tools, what next?" — with the agentic loop living in the chat package.
@@ -123,7 +121,7 @@ type Provider interface {
 	// Name identifies the provider in logs and in the interface.
 	Name() string
 	// IsAI reports whether replies come from a language model. False for the
-	// deterministic fallback, so the interface can say so plainly.
+	// stand-in that answers when no model can, so the interface can say so plainly.
 	IsAI() bool
 	// Complete produces the next turn.
 	Complete(ctx context.Context, req Request) (Reply, error)

@@ -165,10 +165,6 @@ export function HistoryPage() {
               A button that ignored the filters would be a different feature wearing
               this one's label. */}
           <ExportButton query={query} filtered={filtered} />
-
-          <Button asChild variant="outline" className="hidden shrink-0 md:inline-flex">
-            <Link to="/mover">Mover dinero</Link>
-          </Button>
         </div>
       </header>
 
@@ -207,7 +203,7 @@ export function HistoryPage() {
               emptyBody={
                 filtered
                   ? 'Prueba con un rango de fechas más amplio o quita algún filtro.'
-                  : 'Haz un ingreso o una transferencia y aparecerá aquí al instante.'
+                  : 'Importa un estado de cuenta de tu banco y tus movimientos aparecerán aquí.'
               }
               emptyAction={
                 filtered ? (
@@ -216,7 +212,7 @@ export function HistoryPage() {
                   </Button>
                 ) : (
                   <Button asChild variant="outline">
-                    <Link to="/mover">Mover dinero</Link>
+                    <Link to="/cuentas">Importar estado de cuenta</Link>
                   </Button>
                 )
               }

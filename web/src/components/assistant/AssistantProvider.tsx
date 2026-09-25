@@ -10,8 +10,8 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, streamChat } from '@/api/client'
-import type { ChatEvent, ChatProvider, ConfirmationCard as Card } from '@/api/types'
-import { keys, useChatHistory, useClearChat, useDashboard } from '@/lib/queries'
+import type { ChatEvent, ChatProvider } from '@/api/types'
+import { keys, useChatHistory, useClearChat } from '@/lib/queries'
 
 /**
  * The assistant's conversation, owned above the layout.
@@ -38,7 +38,6 @@ export interface Turn {
   role: 'user' | 'assistant'
   text?: string
   tools?: ToolRun[]
-  card?: Card
   /** Set on a turn that failed, so the message is styled as a failure. */
   error?: string
 }
@@ -83,8 +82,6 @@ interface AssistantContextValue {
    */
   docked: boolean
   setDocked: (value: boolean) => void
-  /** Reservations still awaiting an answer, for the marker on the tab bar. */
-  pendingCount: number
 }
 
 const DOCKED_KEY = 'corebank.assistant.docked'
@@ -120,13 +117,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const clearMutation = useClearChat()
   const queryClient = useQueryClient()
 
-  // Read from the dashboard so a reservation is visible from every screen, not only
-  // the one that happens to be showing. `pending_confirmations` is only on the
-  // dashboard view, and TanStack serves it from the same cache entry the dashboard
-  // page uses, so this shares that request rather than adding one there.
-  const dashboard = useDashboard()
-  const pendingConfirmations = dashboard.data?.pending_confirmations
-
   const [turns, setTurns] = useState<Turn[]>([])
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -138,9 +128,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
    * The engine reported by the last exchange, which supersedes the one the history
    * endpoint gave on load.
    *
-   * The two can disagree by the time somebody has sent a message: the demo's AI
-   * budget is finite and shared, so it can run out mid-session. Keeping the label on
-   * the load-time value would attribute a rule-based reply to a model.
+   * The two can disagree by the time somebody has sent a message: the AI budget is
+   * finite and shared, so it can run out mid-session. Keeping the label on the
+   * load-time value would attribute an unavailable notice to a model.
    */
   const [liveProvider, setLiveProvider] = useState<ChatProvider | null>(null)
 
@@ -162,38 +152,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       })),
     )
   }, [history.data])
-
-  // A reservation the customer never answered has to reappear after a reload, or the
-  // held funds are missing from the available balance with nothing on screen
-  // explaining why.
-  useEffect(() => {
-    if (!pendingConfirmations?.length) return
-
-    setTurns((previous) => {
-      const known = new Set(
-        previous
-          .map((turn) => turn.card?.hold_id)
-          .filter((id): id is string => Boolean(id)),
-      )
-      const restored = pendingConfirmations
-        .filter((tx) => tx.confirmation && !known.has(tx.confirmation.hold_id))
-        .map<Turn>((tx) => ({
-          id: `pending-${tx.confirmation!.hold_id}`,
-          role: 'assistant',
-          text: 'Tenías esta operación pendiente de confirmar.',
-          card: {
-            hold_id: tx.confirmation!.hold_id,
-            kind: tx.kind,
-            amount: tx.amount.formatted,
-            from_account: tx.from_account ?? '',
-            to_account: tx.to_account ?? '',
-            expires_at: tx.confirmation!.expires_at,
-          },
-        }))
-
-      return restored.length ? [...previous, ...restored] : previous
-    })
-  }, [pendingConfirmations])
 
   // A stream left running after the provider unmounts — a sign-out — would keep
   // writing into state that no longer exists.
@@ -285,7 +243,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       setOpen,
       docked,
       setDocked,
-      pendingCount: pendingConfirmations?.length ?? 0,
     }),
     [
       turns,
@@ -303,7 +260,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       open,
       docked,
       setDocked,
-      pendingConfirmations?.length,
     ],
   )
 
@@ -346,10 +302,6 @@ function applyEvent(
         }
         return { ...turn, tools }
       })
-      break
-
-    case 'confirmation':
-      update((turn) => ({ ...turn, card: event.confirmation }))
       break
 
     case 'error':

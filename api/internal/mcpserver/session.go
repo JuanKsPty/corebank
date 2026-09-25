@@ -101,8 +101,8 @@ type Result struct {
 	// from — "you do not have enough funds" is a conversational answer, not a
 	// crash.
 	IsError bool
-	// Structured is the tool's typed result, used by the chat layer to detect a
-	// confirmation without re-parsing prose.
+	// Structured is the tool's typed result, for a caller that needs its fields
+	// rather than the model-facing text.
 	Structured json.RawMessage
 }
 
@@ -156,46 +156,4 @@ func textOf(result *mcp.CallToolResult) string {
 		text = "(sin contenido)"
 	}
 	return text
-}
-
-// Confirmation is a reservation a tool created, extracted from its result.
-type Confirmation struct {
-	ID                 uuid.UUID
-	Kind               string
-	Amount             string
-	FromAccount        string
-	ToAccount          string
-	BalanceIfConfirmed string
-	ExpiresAt          string
-}
-
-// ConfirmationFrom reads a confirmation out of a tool result.
-//
-// The chat layer uses this to emit the confirmation card, and it reads the
-// *structured* result rather than the model's prose. That matters: if the card came
-// from what the model said, a model that hallucinated a confirmation id would
-// produce a button, and one that forgot to mention the reservation would leave the
-// customer with funds held and nothing to click.
-func ConfirmationFrom(tool string, result Result) (Confirmation, bool) {
-	if result.IsError || !RequiresConfirmation(tool) || len(result.Structured) == 0 {
-		return Confirmation{}, false
-	}
-
-	var raw confirmationResult
-	if err := json.Unmarshal(result.Structured, &raw); err != nil {
-		return Confirmation{}, false
-	}
-	id, err := uuid.Parse(raw.ConfirmationID)
-	if err != nil {
-		return Confirmation{}, false
-	}
-	return Confirmation{
-		ID:                 id,
-		Kind:               raw.Kind,
-		Amount:             raw.Amount,
-		FromAccount:        raw.FromAccount,
-		ToAccount:          raw.ToAccount,
-		BalanceIfConfirmed: raw.BalanceIfConfirmed,
-		ExpiresAt:          raw.ExpiresAt,
-	}, true
 }

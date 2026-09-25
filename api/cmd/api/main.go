@@ -61,9 +61,8 @@ func run() error {
 			"existing sessions will not survive a restart")
 	}
 	if !cfg.AI.Enabled() {
-		logger.Warn("ANTHROPIC_API_KEY is not set; the chat will answer with local rules instead " +
-			"of a language model — the MCP tools and the confirmation flow work either way, and " +
-			"the interface says which engine is active")
+		logger.Warn("ANTHROPIC_API_KEY is not set; the assistant is unavailable and says so — " +
+			"everything else works normally")
 	}
 
 	// SIGTERM is what Docker sends on `compose down`; SIGINT is Ctrl-C.
@@ -112,9 +111,8 @@ func run() error {
 	investmentsSvc := investments.NewService(db, accountsSvc, txSvc, cfg.IBKR.TokenEncryptionKey)
 	bankImportSvc := bankimport.NewService(db, categoriesSvc, accountsSvc, txSvc)
 
-	// The assistant is built from whichever engine is available, and which one it
-	// is stays visible: without an API key the rule-based fallback drives the same
-	// MCP tools, and the interface labels it rather than passing it off as an AI.
+	// Without an API key the assistant reports itself unavailable, and the
+	// interface says why.
 	provider := selectProvider(db, cfg.AI, logger)
 	chatSvc := chat.NewService(db, mcpserver.Deps{
 		Accounts:     accountsSvc,
@@ -235,29 +233,28 @@ const chatMessagesPerMinute = 6
 // selectProvider picks the engine behind the assistant.
 //
 // A missing API key must never stop the process from booting or make the chat
-// return an error: a fresh clone has no credentials, and an
-// application where one feature crashes the page is worse than one where it is
-// honestly labelled. So the fallback drives the same MCP tools through the same
-// loop, and the interface says which engine answered.
+// return an error: a fresh clone has no credentials. Without one, the assistant
+// says it is unavailable and the interface says why.
 //
 // When a key *is* present, the model never gets called directly. It goes behind the
 // spend ceilings, because this deployment is public and the key on it is somebody's
-// actual money: registration is open, so without a ceiling the budget is whatever a stranger decides to spend. The wrapper
-// also means the assistant degrades to rules when the money or the key runs out,
-// rather than telling customers to "try again in a moment" forever.
+// actual money: registration is open, so without a ceiling the budget is whatever a
+// stranger decides to spend. When the money or the key runs out, the assistant
+// reports itself unavailable rather than telling people to "try again in a moment"
+// forever.
 func selectProvider(db *store.DB, cfg config.AIConfig, logger *slog.Logger) llm.Provider {
-	fallback := chat.NewFallback()
+	unavailable := chat.NewUnavailable()
 
 	if !cfg.Enabled() {
-		return fallback
+		return unavailable
 	}
 
 	provider, err := llm.NewAnthropic(cfg.APIKey, cfg.Model)
 	if err != nil {
-		// A key that is present but unusable — empty after trimming, say. Falling
-		// back keeps the application working and says why.
-		logger.Error("the AI provider could not be built; falling back to local rules", "error", err)
-		return fallback
+		// A key that is present but unusable — empty after trimming, say. The
+		// rest of the application keeps working and the log says why.
+		logger.Error("the AI provider could not be built; the assistant is unavailable", "error", err)
+		return unavailable
 	}
 
 	caps := chat.Caps{
@@ -267,9 +264,9 @@ func selectProvider(db *store.DB, cfg config.AIConfig, logger *slog.Logger) llm.
 	}
 	if caps.Total == 0 {
 		// A key with no allowance to spend it. Worth saying out loud, because the
-		// symptom — an assistant that answers from rules despite a configured key —
+		// symptom — an assistant that is unavailable despite a configured key —
 		// otherwise looks like the key being broken.
-		logger.Warn("an API key is configured but AI_BUDGET_USD is zero; the assistant will answer from rules")
+		logger.Warn("an API key is configured but AI_BUDGET_USD is zero; the assistant is unavailable")
 	}
 	logger.Info("AI assistant enabled",
 		"model", cfg.Model,
@@ -278,5 +275,5 @@ func selectProvider(db *store.DB, cfg config.AIConfig, logger *slog.Logger) llm.
 		"user_daily_micros", caps.UserDaily,
 		"max_tool_turns", cfg.MaxToolTurns)
 
-	return chat.NewBudgeted(provider, fallback, chat.NewKeeper(db), caps)
+	return chat.NewBudgeted(provider, unavailable, chat.NewKeeper(db), caps)
 }

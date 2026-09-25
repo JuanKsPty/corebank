@@ -74,12 +74,6 @@ export type MovementKind = 'deposit' | 'withdrawal' | 'transfer' | 'internal_tra
 
 export type MovementStatus = 'pending' | 'completed' | 'failed' | 'voided' | 'expired'
 
-/** Present only while a movement holds funds and waits for an answer. */
-export interface Confirmation {
-  hold_id: string
-  expires_at: string
-}
-
 export interface Transaction {
   id: string
   kind: MovementKind
@@ -94,7 +88,6 @@ export interface Transaction {
    * sync, or it is a "sincerar saldo" correction. */
   origin: 'api' | 'chat' | 'ibkr_sync' | 'bank_import' | 'reconcile'
   failure_code?: string
-  confirmation?: Confirmation
   occurred_at: string
 }
 
@@ -129,34 +122,20 @@ export interface Dashboard {
   total_available: Amount
   recent: Transaction[]
   flow: Flow
-  /** Reservations still waiting, so a reload restores their cards. */
-  pending_confirmations: Transaction[]
-}
-
-/** The card the interface renders when the assistant proposes a movement. */
-export interface ConfirmationCard {
-  hold_id: string
-  kind: MovementKind
-  /** Decimal string, e.g. "100.00". */
-  amount: string
-  from_account: string
-  to_account: string
-  balance_if_confirmed?: string
-  expires_at: string
 }
 
 /**
- * Why a rule-based reply is rule-based.
+ * Why the assistant is not answering, when it is not.
  *
  * `is_ai` alone cannot tell these apart, and they are not the same message. Running
- * without a key is how the project works on a machine with no credentials; running
- * out of budget means the demo's money is gone. One of those is worth explaining.
+ * without a key is a configuration choice; running out of budget means the money
+ * for the model is gone. One of those is worth explaining.
  */
 export type ChatEngine = 'ai' | 'unconfigured' | 'budget_exhausted' | 'degraded'
 
 export interface ChatProvider {
   name: string
-  /** False for the rule-based fallback, which the interface labels as such. */
+  /** False when the assistant is unavailable, which the interface says plainly. */
   is_ai: boolean
   engine: ChatEngine
 }
@@ -348,7 +327,6 @@ export type ChatEvent =
   | { kind: 'message'; text: string }
   | { kind: 'tool_call'; tool: string }
   | { kind: 'tool_result'; tool: string; failed?: boolean }
-  | { kind: 'confirmation'; confirmation: ConfirmationCard }
   | { kind: 'error'; code: string; message: string }
   // The closing event carries which engine actually answered. It can differ from
   // what the page was told on load — a spend ceiling reached mid-session, a key

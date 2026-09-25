@@ -38,7 +38,7 @@ const THEME_ICON = { light: SunIcon, dark: MoonIcon, system: LaptopIcon } as con
  */
 export function Sidebar({ className }: { className?: string }) {
   const { user, signOut } = useSession()
-  const { setOpen: setAssistantOpen, docked, setDocked, pendingCount } = useAssistant()
+  const { setOpen: setAssistantOpen, docked, setDocked } = useAssistant()
   const { theme, setTheme } = useTheme()
   const location = useLocation()
   const ThemeIcon = THEME_ICON[theme]
@@ -113,7 +113,6 @@ export function Sidebar({ className }: { className?: string }) {
         >
           <SparklesIcon className="size-4" aria-hidden="true" />
           Asistente
-          {pendingCount > 0 && <PendingMark count={pendingCount} />}
         </Button>
 
         <Button
@@ -130,7 +129,6 @@ export function Sidebar({ className }: { className?: string }) {
         >
           <SparklesIcon className="size-4" aria-hidden="true" />
           Asistente
-          {pendingCount > 0 && <PendingMark count={pendingCount} />}
         </Button>
 
         <DropdownMenu>
@@ -172,17 +170,5 @@ export function Sidebar({ className }: { className?: string }) {
         </DropdownMenu>
       </div>
     </aside>
-  )
-}
-
-/** The count of reservations still waiting, on the assistant's trigger. */
-function PendingMark({ count }: { count: number }) {
-  return (
-    <span
-      className="flex size-4 items-center justify-center rounded-full bg-hold text-[0.625rem] font-semibold text-ink"
-      aria-label={`${count} ${count === 1 ? 'operación pendiente' : 'operaciones pendientes'} de confirmar`}
-    >
-      {count}
-    </span>
   )
 }

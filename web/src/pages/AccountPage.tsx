@@ -167,8 +167,8 @@ export function AccountPage() {
           <CircleAlertIcon className="text-hold" />
           <AlertTitle>Hay fondos retenidos en esta cuenta</AlertTitle>
           <AlertDescription className="text-hold-text/85">
-            Una operación está esperando tu confirmación. Ábrela en el asistente: si no
-            respondes, la reserva se libera sola.
+            Una operación anterior dejó fondos reservados. La reserva se libera sola en unos
+            minutos.
           </AlertDescription>
         </Alert>
       )}
@@ -195,12 +195,7 @@ export function AccountPage() {
             ownedAccounts={ownedAccounts}
             loading={history.isLoading}
             emptyTitle="Esta cuenta no tiene movimientos"
-            emptyBody="Cuando entre o salga dinero de aquí, lo verás en esta lista."
-            emptyAction={
-              <Button asChild variant="outline">
-                <Link to="/mover">Mover dinero</Link>
-              </Button>
-            }
+            emptyBody="Importa un estado de cuenta de esta cuenta y sus movimientos aparecerán aquí."
           />
         </div>
         {history.data?.has_more && (

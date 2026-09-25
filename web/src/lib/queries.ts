@@ -1,7 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import * as api from '@/api/endpoints'
-import type { HistoryQuery, MovementInput } from '@/api/endpoints'
+import type { HistoryQuery } from '@/api/endpoints'
 import type { Account, AccountType } from '@/api/types'
 
 /**
@@ -69,30 +69,9 @@ function useMoneyInvalidation() {
     ])
 }
 
-export function useMovement(kind: 'deposit' | 'withdraw' | 'transfer') {
-  const invalidate = useMoneyInvalidation()
-
-  return useMutation({
-    mutationFn: ({
-      input,
-      idempotencyKey,
-    }: {
-      input: MovementInput
-      /**
-       * Minted once per attempt by the form and reused across retries, so a
-       * resubmission after a lost response is recognised instead of moving the
-       * money twice.
-       */
-      idempotencyKey: string
-    }) => api.submitMovement(kind, input, idempotencyKey),
-    onSuccess: invalidate,
-  })
-}
-
 /**
- * Corrects a real account's balance ("sincerar saldo"). Same invalidation as
- * any movement, since a correction is exactly that: a deposit or withdrawal
- * corebank posted for the customer.
+ * Corrects a real account's balance ("sincerar saldo"). It posts a correcting
+ * movement, so everything that displays money is invalidated.
  */
 export function useReconcileAccount() {
   const invalidate = useMoneyInvalidation()
@@ -107,16 +86,6 @@ export function useReconcileAccount() {
       targetBalance: string
       idempotencyKey: string
     }) => api.reconcileAccount(accountNumber, targetBalance, idempotencyKey),
-    onSuccess: invalidate,
-  })
-}
-
-export function useResolveConfirmation() {
-  const invalidate = useMoneyInvalidation()
-
-  return useMutation({
-    mutationFn: ({ holdId, action }: { holdId: string; action: 'confirm' | 'cancel' }) =>
-      api.resolveConfirmation(holdId, action),
     onSuccess: invalidate,
   })
 }

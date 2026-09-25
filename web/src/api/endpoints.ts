@@ -20,7 +20,6 @@ import type {
   ReconcileResult,
   SecurityStatus,
   Session,
-  Transaction,
   TransactionPage,
 } from './types'
 
@@ -82,39 +81,6 @@ export const disableDeviceForPin = () =>
 export const fetchMe = () => request<Me>('/api/me')
 
 export const fetchDashboard = () => request<Dashboard>('/api/dashboard/summary')
-
-// --- movements --------------------------------------------------------------
-
-export interface MovementInput {
-  /** A decimal string, never a number: a float would lose cents. */
-  amount: string
-  account_number?: string
-  to_account_number?: string
-  description?: string
-  /** Reserve the funds and wait for the customer instead of completing. */
-  require_confirmation?: boolean
-}
-
-/**
- * submitMovement performs a deposit, withdrawal or transfer.
- *
- * The idempotency key is minted per call rather than per attempt, and the caller
- * reuses the same one when retrying — which is the only way a retry can be told
- * apart from a second deliberate movement of the same amount.
- */
-export const submitMovement = (
-  kind: 'deposit' | 'withdraw' | 'transfer',
-  input: MovementInput,
-  idempotencyKey: string,
-) =>
-  request<Transaction>(`/api/transactions/${kind}`, {
-    method: 'POST',
-    body: input,
-    idempotencyKey,
-  })
-
-export const resolveConfirmation = (holdId: string, action: 'confirm' | 'cancel') =>
-  request<Transaction>(`/api/transactions/${holdId}/${action}`, { method: 'POST' })
 
 // --- history ----------------------------------------------------------------
 

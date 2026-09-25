@@ -98,9 +98,6 @@ type dashboardResponse struct {
 	TotalAvailable money.Amount    `json:"total_available"`
 	Recent         []View          `json:"recent"`
 	Flow           flowResponse    `json:"flow"`
-	// Pending are confirmations still awaiting an answer, so a reload restores
-	// the cards instead of leaving held funds unexplained.
-	Pending []View `json:"pending_confirmations"`
 }
 
 // flowResponse carries the series together with the period it covers, so the

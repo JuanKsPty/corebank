@@ -34,7 +34,7 @@ const (
 
 // ProviderState is what the interface needs to label the assistant honestly.
 type ProviderState struct {
-	// Name is the model when one is answering, and the fallback's own name
+	// Name is the model when one is answering, and the stand-in's own name
 	// otherwise.
 	Name   string
 	IsAI   bool
@@ -43,7 +43,7 @@ type ProviderState struct {
 
 // stateful is implemented by a provider that can report why it is answering the
 // way it is. Declared as an interface so Service works with a bare provider too —
-// the plain fallback does not need to know any of this.
+// the bare Unavailable provider does not need to know any of this.
 type stateful interface{ State() ProviderState }
 
 // Caps are the three spend ceilings, in micro-dollars.
@@ -111,7 +111,7 @@ func (k dbKeeper) Remaining(ctx context.Context) (int64, error) {
 // would cross a ceiling, or noticing that the model has stopped working and
 // answering anyway.
 //
-// It lives in this package rather than in llm because it needs the fallback and the
+// It lives in this package rather than in llm because it needs Unavailable and the
 // database, and llm must not depend on either — a provider should not know what a
 // transaction is. What llm does own is the pricing and the distinction between a
 // failure worth retrying and one that is not, so nothing here imports the Anthropic
@@ -134,11 +134,11 @@ func (k dbKeeper) Remaining(ctx context.Context) (int64, error) {
 // which is why more calls fit than the estimate predicted — that is the mechanism
 // working rather than a leak.
 type Budgeted struct {
-	ai       llm.Provider
-	fallback llm.Provider
-	keeper   Keeper
-	caps     Caps
-	now      func() time.Time
+	ai          llm.Provider
+	unavailable llm.Provider
+	keeper      Keeper
+	caps        Caps
+	now         func() time.Time
 
 	// latched records a failure that will not clear by itself: a rejected key, an
 	// exhausted account, the lifetime ceiling. Once set, the model is not called
@@ -146,15 +146,15 @@ type Budgeted struct {
 	// round trip rediscovering the same dead end and tell the customer to "try
 	// again in a moment" forever.
 	latched atomic.Bool
-	// engine is the last reason the fallback answered, for the label. Stored
+	// engine is the last reason the model did not answer, for the label. Stored
 	// separately from latched because a transient degradation clears on the next
 	// successful call while a latched one does not.
 	engine atomic.Value // Engine
 }
 
 // NewBudgeted wraps a model in its spend ceilings.
-func NewBudgeted(ai, fallback llm.Provider, k Keeper, caps Caps) *Budgeted {
-	b := &Budgeted{ai: ai, fallback: fallback, keeper: k, caps: caps, now: time.Now}
+func NewBudgeted(ai, unavailable llm.Provider, k Keeper, caps Caps) *Budgeted {
+	b := &Budgeted{ai: ai, unavailable: unavailable, keeper: k, caps: caps, now: time.Now}
 	b.engine.Store(EngineAI)
 	return b
 }
@@ -174,7 +174,7 @@ func (b *Budgeted) State() ProviderState {
 	if engine == EngineAI {
 		return ProviderState{Name: b.ai.Name(), IsAI: true, Engine: EngineAI}
 	}
-	return ProviderState{Name: b.fallback.Name(), IsAI: false, Engine: engine}
+	return ProviderState{Name: b.unavailable.Name(), IsAI: false, Engine: engine}
 }
 
 func (b *Budgeted) currentEngine() Engine {
@@ -197,7 +197,7 @@ func (b *Budgeted) Complete(ctx context.Context, req llm.Request) (llm.Reply, er
 	logger := logging.FromContext(ctx)
 
 	if b.latched.Load() {
-		return b.fallback.Complete(ctx, req)
+		return b.unavailable.Complete(ctx, req)
 	}
 
 	scopes := b.scopes(ctx)
@@ -215,14 +215,14 @@ func (b *Budgeted) Complete(ctx context.Context, req llm.Request) (llm.Reply, er
 		// it would silence the assistant for good over a busy afternoon.
 		if exhausted.Scope == store.BudgetTotal {
 			b.latch(EngineBudgetExhausted)
-			logger.Warn("the lifetime AI budget is exhausted; the assistant is now rule-based",
+			logger.Warn("the lifetime AI budget is exhausted; the assistant is now unavailable",
 				"cap_micros", b.caps.Total)
 		} else {
 			b.engine.Store(EngineBudgetExhausted)
-			logger.Info("an AI spend ceiling was reached; answering from rules",
+			logger.Info("an AI spend ceiling was reached; the assistant is unavailable",
 				"scope", exhausted.Scope)
 		}
-		return b.fallback.Complete(ctx, req)
+		return b.unavailable.Complete(ctx, req)
 	}
 
 	reply, callErr := b.ai.Complete(ctx, req)
@@ -236,22 +236,22 @@ func (b *Budgeted) Complete(ctx context.Context, req llm.Request) (llm.Reply, er
 		switch {
 		case errors.Is(callErr, context.Canceled), errors.Is(callErr, context.DeadlineExceeded):
 			// The customer left, or the whole exchange ran out of time. Not a
-			// provider problem, and the fallback cannot help with a dead context.
+			// provider problem, and nobody is left to answer.
 			return llm.Reply{}, callErr
 
 		case errors.Is(callErr, llm.ErrPermanent):
 			b.latch(EngineDegraded)
-			logger.Error("the AI provider failed permanently; the assistant is now rule-based",
+			logger.Error("the AI provider failed permanently; the assistant is now unavailable",
 				"error", callErr)
-			return b.fallback.Complete(ctx, req)
+			return b.unavailable.Complete(ctx, req)
 
 		default:
-			// Transient: this message is answered by the rules, and the next one
+			// Transient: this message goes unanswered, and the next one
 			// tries the model again.
 			b.engine.Store(EngineDegraded)
-			logger.Warn("the AI provider is unavailable; answering this message from rules",
+			logger.Warn("the AI provider is unavailable; this message goes unanswered",
 				"error", callErr)
-			return b.fallback.Complete(ctx, req)
+			return b.unavailable.Complete(ctx, req)
 		}
 	}
 
