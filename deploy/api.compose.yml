@@ -6,13 +6,8 @@
 # own stack, so this file contains only the one thing that shares this
 # lifecycle.
 #
-# No `seed` service here, unlike docker-compose.yml: this deployment runs on
-# a real person's real data (their own registration, plus the bank-import and
-# IBKR-sync pipelines), and importing the technical-test demo dataset into it
-# would mean seeing somebody else's ~1600 fake accounts of history in your
-# own bank. The demo dataset still exists — docker-compose.yml's `seed`
-# service, gated behind `--profile seed`, is for a separate standalone demo
-# instance, not this one.
+# This deployment runs on real data: each user's own registration, plus the
+# bank-import and IBKR-sync pipelines.
 #
 # Not a Dokploy "Application", which would deploy this as a Swarm service. Swarm
 # ignores security_opt, and the TigerBeetle client opens its own io_uring — under
@@ -50,8 +45,8 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
       # The spend ceilings, in dollars, set in the deployment's variables.
       #
-      # This deployment is public, registration is open and the test credentials are
-      # in the README, so the key above is reachable by anybody who opens the page.
+      # This deployment is public and registration is open, so the key above is
+      # reachable by anybody who signs up.
       # The API reserves a call's estimated cost before making it and refuses to start
       # one that would cross a ceiling — it then answers from the rule-based engine
       # and the interface says the budget is what ran out, rather than claiming the

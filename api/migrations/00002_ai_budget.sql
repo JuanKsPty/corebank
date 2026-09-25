@@ -1,8 +1,7 @@
 -- The assistant's spend, and the ceiling it cannot cross.
 --
--- This deployment is public, registration is open and the test credentials are
--- published in the README, so the API key behind the assistant is reachable by
--- anybody who opens the page. A per-address rate limit slows that down; it does not
+-- This deployment is public and registration is open, so the API key behind the
+-- assistant is reachable by anybody who signs up. A per-address rate limit slows that down; it does not
 -- bound it. Nothing here is about performance — it is about the fact that an
 -- unbounded spend on a borrowed key is not a configuration detail.
 --

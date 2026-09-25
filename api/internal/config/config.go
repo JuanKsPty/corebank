@@ -30,7 +30,6 @@ type Config struct {
 	AI   AIConfig
 	IBKR IBKRConfig
 	Log  LogConfig
-	Seed SeedConfig
 }
 
 type HTTPConfig struct {
@@ -91,9 +90,8 @@ type AIConfig struct {
 	// one call can cost a fraction of a cent, and a ceiling that cannot represent
 	// the thing it counts is not a ceiling.
 	//
-	// They exist because this deployment is public, registration is open and the
-	// test credentials are published: without them, the budget is whatever a
-	// stranger decides to spend. Zero disables the assistant's use of the API
+	// They exist because this deployment is public and registration is open:
+	// without them, the budget is whatever a stranger decides to spend. Zero disables the assistant's use of the API
 	// entirely, which is a supported state — the rule-based engine answers.
 	//
 	// BudgetMicros is the lifetime ceiling and the one that matters.
@@ -129,11 +127,6 @@ func (c IBKRConfig) Enabled() bool { return len(c.TokenEncryptionKey) > 0 }
 type LogConfig struct {
 	Level  string // debug | info | warn | error
 	Format string // json | text
-}
-
-type SeedConfig struct {
-	// File is the dataset the seeder imports, relative to the working directory.
-	File string
 }
 
 // Load reads the environment and validates it.
@@ -192,13 +185,10 @@ func Load() (Config, error) {
 			Level:  oneOf("LOG_LEVEL", "info", "debug", "info", "warn", "error"),
 			Format: oneOf("LOG_FORMAT", defaultLogFormat(env), "json", "text"),
 		},
-		Seed: SeedConfig{
-			File: str("SEED_FILE", "seed/data/hnl-seed.json"),
-		},
 	}
 
-	// An unset signing secret must not stop the process from booting — the
-	// evaluator's first run has no .env of its own — but a hardcoded fallback
+	// An unset signing secret must not stop the process from booting — a fresh
+	// clone has no .env of its own — but a hardcoded fallback
 	// committed to a public repository would be worse than no secret at all.
 	// So one is generated per process: everything works, and the only cost is
 	// that sessions do not survive a restart. Load's caller warns about it.

@@ -10,9 +10,6 @@
 #
 # The container this produces needs `seccomp=unconfined` to run: the client sets up
 # its own io_uring, which Docker's default profile blocks. See docker-compose.yml.
-#
-# Build context is ./api, so the seed dataset has to live inside this directory
-# rather than at the repository root.
 # =============================================================================
 
 # --- build -------------------------------------------------------------------
@@ -27,14 +24,13 @@ RUN go mod download
 
 COPY . .
 
-# Both binaries come out of one build stage because they share every dependency,
-# and compiling them twice in separate stages would download and compile the
-# TigerBeetle client twice.
+# Every binary comes out of one build stage because they share every dependency,
+# and compiling them in separate stages would download and compile the
+# TigerBeetle client once per stage.
 #
 # No `-ldflags "-s -w"`: stripping symbols saves a few megabytes and takes the
 # stack traces with it, which is a poor trade for a service that moves money.
 RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -o /out/api      ./cmd/api \
- && CGO_ENABLED=1 GOOS=linux go build -trimpath -o /out/seed     ./cmd/seed \
  && CGO_ENABLED=1 GOOS=linux go build -trimpath -o /out/ibkrsync ./cmd/ibkrsync \
  && CGO_ENABLED=1 GOOS=linux go build -trimpath -o /out/import   ./cmd/import
 
@@ -56,14 +52,8 @@ RUN useradd --system --uid 10001 --no-create-home corebank
 WORKDIR /app
 
 COPY --from=build /out/api      /usr/local/bin/api
-COPY --from=build /out/seed     /usr/local/bin/seed
 COPY --from=build /out/ibkrsync /usr/local/bin/ibkrsync
 COPY --from=build /out/import   /usr/local/bin/import
-
-# The dataset, at the path SEED_FILE defaults to (relative to the working
-# directory). Committed to the repository on purpose: without it a fresh clone
-# comes up with an empty bank.
-COPY seed/data/ ./seed/data/
 
 USER corebank
 

@@ -38,7 +38,7 @@ services:
       # Docker's default seccomp profile blocks the io_uring syscalls that
       # TigerBeetle requires (io_uring_setup / _enter / _register). Without
       # this, `format` aborts with "io_uring is not available: PermissionDenied".
-      # The API and the seeder need it as well, because the Go client opens its
+      # The API and the one-shot jobs need it as well, because the Go client opens its
       # own io_uring. `web` is the only container on the default profile.
       - seccomp=unconfined
     volumes:
@@ -69,7 +69,7 @@ services:
     # A fixed address, because the TigerBeetle client parses TB_ADDRESSES itself and
     # accepts only IP:port. Given a service name it refuses before connecting:
     # "invalid client cluster address". Docker's DNS is therefore no help here, and
-    # this is the address the API and the seeder are pointed at.
+    # this is the address the API and the one-shot jobs are pointed at.
     networks:
       default:
         ipv4_address: 10.77.0.10
@@ -104,7 +104,7 @@ services:
     # The TigerBeetle *client* uses io_uring too, not just the replica. Under the
     # default seccomp profile tb_client_init aborts with
     # "failed to initialize IO: PermissionDenied" and takes the process with it, so
-    # every container that opens a ledger connection needs this — the API, the seeder
+    # every container that opens a ledger connection needs this — the API, the jobs
     # and TigerBeetle itself. Only `web` keeps the default profile.
     security_opt:
       - seccomp=unconfined
@@ -150,7 +150,7 @@ services:
         condition: service_healthy
     healthcheck:
       # /healthz reports on both stores, so a healthy API means the whole money
-      # path is reachable — which is what `seed` and `web` are waiting for. `--fail`
+      # path is reachable — which is what `web` is waiting for. `--fail`
       # is what turns a 503 from a degraded check into a failed healthcheck rather
       # than a successful fetch of bad news.
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/healthz"]
@@ -159,38 +159,6 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
-
-  # ---------------------------------------------------------------------------
-  # Dataset import. A one-shot job, idempotent by a marker row: on every restart
-  # after the first it finds the marker and exits without touching anything.
-  #
-  # Gated behind a profile: Juan's own deployment uses real data (his own
-  # registration plus the bank-import pipeline), not the technical-test demo
-  # dataset, so a plain `docker compose up` must not seed it. Run it on demand
-  # with `docker compose --profile seed run --rm seed` for a standalone demo
-  # instance instead.
-  # ---------------------------------------------------------------------------
-  seed:
-    build:
-      context: ./api
-    image: corebank-api
-    command: ["seed"]
-    profiles: ["seed"]
-    security_opt:
-      - seccomp=unconfined # the ledger client needs it; see `api` above
-    environment:
-      DATABASE_URL: >-
-        postgres://${POSTGRES_USER:-corebank}:${POSTGRES_PASSWORD:-corebank}@postgres:5432/${POSTGRES_DB:-corebank}?sslmode=disable
-      TB_ADDRESSES: 10.77.0.10:3001
-      TB_CLUSTER_ID: ${TB_CLUSTER_ID:-0}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      SEED_FILE: ${SEED_FILE:-seed/data/hnl-seed.json}
-    depends_on:
-      # Waits for the API rather than for PostgreSQL, because the API is what
-      # applies the migrations the seeder needs the tables from.
-      api:
-        condition: service_healthy
-    restart: "no"
 
   # ---------------------------------------------------------------------------
   # IBKR portfolio sync — a one-shot job, not started by a plain

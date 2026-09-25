@@ -59,8 +59,8 @@ const (
 )
 
 // ExternalAccount is the counterparty for money entering or leaving the bank.
-// The provided dataset uses this sentinel, and deposits and withdrawals reuse it
-// so a statement reads the same for imported and live movements.
+// Deposits and withdrawals all use this one sentinel, so a statement reads the
+// same whatever the movement's origin.
 const ExternalAccount = "EXTERNAL"
 
 // Transaction is a movement's metadata. The amount is duplicated here and in the

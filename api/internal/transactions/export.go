@@ -20,8 +20,7 @@ const exportPageSize = 200
 
 // exportRowLimit is a runaway guard, not a product limit.
 //
-// The seeded dataset holds 6429 movements across 1000 customers, so no real export
-// comes near this; it exists so that a bug in the cursor cannot turn one request into
+// No real export comes near this; it exists so that a bug in the cursor cannot turn one request into
 // an endless one. If it is ever reached the file is still valid CSV and the truncation
 // is logged, because a statement that silently stops short is worse than one that
 // admits where it ended.

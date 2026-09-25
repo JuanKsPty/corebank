@@ -43,7 +43,7 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, q HistoryQuery)
 // Flow returns daily money in and out for the dashboard chart.
 //
 // The window follows the data. For an account in use it is the last `days`; for one
-// whose history ends earlier — as the imported dataset's does — it moves back to
+// whose history ends earlier — an imported statement's, say — it moves back to
 // where the activity is, and says so, rather than returning an empty series that
 // would read as a broken chart.
 func (s *Service) Flow(ctx context.Context, userID uuid.UUID, days int) (store.Flow, error) {

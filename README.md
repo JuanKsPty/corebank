@@ -5,10 +5,7 @@ Sistema de banca en línea con **ledger contable de doble entrada** sobre
 las cuentas en lenguaje natural a través del
 [Model Context Protocol](https://modelcontextprotocol.io).
 
-**Demo en vivo:** <https://corebank.juank.tech> — el botón «Entrar con la cuenta de
-prueba» de la portada te deja dentro en un clic, con el formulario ya lleno. Las
-[credenciales](#credenciales-de-prueba) también están abajo, y la pantalla de acceso
-ofrece las dos cuentas.
+**En vivo:** <https://corebank.juank.tech> — crea una cuenta desde la portada.
 
 ---
 
@@ -25,10 +22,6 @@ La interfaz queda en <http://localhost:5173> y la API en <http://localhost:8080>
 No hace falta editar el `.env`: cada valor tiene un default que funciona, incluida
 la clave de IA, que puede quedar vacía.
 
-El arranque en frío importa el dataset completo —1000 usuarios, 1605 cuentas, 6429
-movimientos— en unos 2 segundos. El segundo arranque no lo repite: el seeder
-encuentra su marca y sale sin tocar nada.
-
 > **Memoria de Docker: 4 GiB mínimo, 6 GiB recomendado.** TigerBeetle reserva
 > ~2,3 GiB al arrancar independientemente de `--cache-grid`, y con Postgres al
 > lado un Docker limitado a 4 GiB va justo.
@@ -41,23 +34,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 Levanta únicamente PostgreSQL y TigerBeetle, para correr la API con `go run` y la
 interfaz con `npm run dev`. Comparte los volúmenes con el stack completo, así que
-los datos son los mismos y no hay que sembrar dos veces.
-
----
-
-## Credenciales de prueba
-
-Usuarios reales del dataset, con saldos verificables contra el JSON de origen. Las
-contraseñas siguen el patrón del fixture y se publican a propósito: sin ellas nadie
-puede evaluar el sistema.
-
-| Correo | Contraseña | Cuentas | Disponible |
-|---|---|---|---|
-| `ihernandez@email.com` | `Isabel2024!` | 1 | $32,354.53 |
-| `andres.perez368@mail.com` | `Andrés2024!` | 3 | $86,047.62 |
-
-El segundo tiene varias cuentas, que es lo que permite probar un traspaso entre
-cuentas propias.
+los datos son los mismos en ambos.
 
 ---
 
@@ -211,9 +188,8 @@ IA sería mentir sobre el producto.
 
 ### El gasto también es imposible por construcción
 
-La demo es pública, el registro está abierto y las credenciales de prueba están
-publicadas más arriba. Eso significa que la clave de API es alcanzable por cualquiera
-que abra la página, y que sin un techo el presupuesto es lo que decida gastar un
+El despliegue es público y el registro está abierto. Eso significa que la clave de
+API es alcanzable por cualquiera que se registre, y que sin un techo el presupuesto es lo que decida gastar un
 desconocido. Un límite por IP lo frena; no lo acota.
 
 Así que **el gasto usa el mismo mecanismo que el dinero**. Una transferencia reserva
@@ -439,50 +415,6 @@ Todo tiene un default que funciona. `cp .env.example .env` y listo.
 | `CORS_ORIGINS` | `http://localhost:5173` | Solo para `npm run dev`: en el stack de contenedores nginx sirve la SPA y proxea `/api` en el mismo origen, así que no hay CORS. |
 | `DB_MAX_CONNS` / `DB_CONNECT_WAIT` / `TB_CONNECT_WAIT` | | Pool y esperas de arranque. |
 | `HTTP_SHUTDOWN_TIMEOUT` | | Margen del apagado ordenado. |
-| `SEED_FILE` | `seed/data/hnl-seed.json` | Dataset a importar. |
-
----
-
-## Decisiones sobre el dataset
-
-El JSON de prueba **no es internamente consistente**, y esto se verificó sobre los
-datos antes de escribir el importador:
-
-- Si `initial_balance` fuera el saldo de **apertura** y se reprodujeran los 6429
-  movimientos en orden cronológico: **312 sobregiros en 126 cuentas**, 70 cuentas
-  terminan en negativo, mínimo −$10,933.69.
-- Si se despeja el saldo de apertura para que el final coincida con
-  `initial_balance`: **140 de 1605 cuentas** siguen quedando en negativo en algún
-  punto; harían falta $599,702.45 de ajustes y 88 cuentas necesitarían apertura
-  negativa.
-
-TigerBeetle rechaza ambos escenarios con `exceeds_credits`. No se pueden tener las
-tres propiedades a la vez: saldo final igual a `initial_balance`, historial completo
-dentro del ledger, y cero sobregiros.
-
-**Decisión: `initial_balance` es el saldo actual al momento del seed.**
-
-- El ledger arranca con **un transfer de apertura por cuenta** por ese monto, así que
-  los saldos que se ven coinciden **exactamente** con el fixture.
-- Los **6429 movimientos históricos** se cargan en Postgres como historial de
-  auditoría (`source='seed'`), que es donde de todos modos tienen que vivir sus
-  descripciones en español y sus estados.
-- **Todo movimiento nuevo** pasa por TigerBeetle como doble entrada real.
-
-### Los 20 correos duplicados
-
-El dataset trae 20 direcciones repetidas que corresponden a **personas distintas**
-—UUID y segundo apellido distintos—, así que fusionarlas dejaría cuentas huérfanas.
-El correo sigue siendo `UNIQUE` y las colisiones se reescriben como
-`usuario+dup2@dominio`, registrado en el log del seeder. Se conservan los 1000
-usuarios y las 1605 cuentas mantienen dueño.
-
-### Las contraseñas del seed
-
-Los 1000 usuarios comparten solo **43 contraseñas distintas** (patrón
-`Nombre2024!`). Hashear las 43 una vez y reutilizar baja el arranque de ~60 s a ~2 s
-con bcrypt. **Es una optimización exclusiva de datos semilla**: todo registro real
-recibe su propio salt.
 
 ---
 
@@ -507,8 +439,8 @@ versión rota más adelante.
 El id de una cuenta en el ledger se **deriva** de su número
 (`4001-6588-5247-0001` → `4001658852470001`) en lugar de generarse. El id de un
 movimiento es el UUID de su fila en Postgres, que son exactamente los 128 bits que
-TigerBeetle necesita. Que sean deterministas es lo que hace seguros los reintentos y
-el re-seeding: reenviar el mismo movimiento tras una caída se reporta como «ya
+TigerBeetle necesita. Que sean deterministas es lo que hace seguros los reintentos:
+reenviar el mismo movimiento tras una caída se reporta como «ya
 aplicado» en vez de mover el dinero dos veces.
 
 ### `seccomp=unconfined`, y en qué servicios
@@ -518,7 +450,7 @@ syscalls**. Sin relajarlo, el formateo aborta con
 `io_uring is not available: PermissionDenied`.
 
 Lo necesitan **tres de los cuatro** servicios que hablan con el ledger: la réplica,
-la API y el seeder — porque el cliente Go **también** abre su propio `io_uring`, no
+la API y los jobs de un solo uso — porque el cliente Go **también** abre su propio `io_uring`, no
 solo el servidor. El único contenedor que conserva el perfil por defecto es `web`,
 que es además el único expuesto a internet.
 
@@ -537,7 +469,6 @@ paquete entero. La imagen de la API se basa en Debian y necesita `CGO_ENABLED=1`
 api/                      backend Go (module github.com/JuanKsPty/corebank/api)
   cmd/
     api/                  el servicio: wiring, migraciones al arrancar, apagado ordenado
-    seed/                 importador del dataset, idempotente
     tbsmoke/              valida el modelo contable contra TigerBeetle real
   internal/
     money/                centavos enteros, parseo exacto desde texto
@@ -553,9 +484,7 @@ api/                      backend Go (module github.com/JuanKsPty/corebank/api)
     chat/                 loop agéntico, fallback de reglas y techo de gasto
     server/ httpx/        router, middleware, errores, respuestas
     config/ logging/      configuración por entorno y logs estructurados
-    seeder/               la importación en sí
   migrations/             SQL de creación de tablas
-  seed/data/              dataset de prueba (commiteado a propósito)
 web/                      frontend Vite + React + TypeScript
   src/api/                cliente fetch, tipos escritos a mano, SSE
   src/components/         shell (dos experiencias), assistant, statement, ui (shadcn)
@@ -669,10 +598,10 @@ El demo corre en cuatro piezas, y cada frontera existe por un motivo:
 |---|---|
 | **PostgreSQL** | Recurso gestionado. La API la alcanza por nombre DNS: pgx resuelve hostnames. |
 | **TigerBeetle** | Su data file se formatea **exactamente una vez** y hacerlo dos veces destruye el ledger, así que queda fuera del alcance de un redespliegue de la app. |
-| **API + seeder** | Comparten ciclo de vida: el seeder corre después de que la API migre. Necesitan `seccomp=unconfined`. |
+| **API** | Migra el esquema al arrancar. Necesita `seccomp=unconfined`. |
 | **web** | No necesita ningún privilegio. **El único contenedor expuesto a internet es el único con el perfil de seguridad por defecto.** |
 
-La API y el seeder van como Compose y no como servicios de Swarm porque **Swarm
+La API va como Compose y no como servicios de Swarm porque **Swarm
 ignora `security_opt`**, y sin él el cliente del ledger aborta al iniciar. El
 frontend sí es un servicio de Swarm, porque no necesita nada de eso.
 
