@@ -6,7 +6,7 @@ import {
 } from '@tanstack/react-query'
 
 import * as api from '@/api/endpoints'
-import type { CheckpointInput, EntryPatch, EntryQuery } from '@/api/endpoints'
+import type { CheckpointInput, EntryPatch, EntryQuery, RuleInput } from '@/api/endpoints'
 
 /**
  * Server state.
@@ -31,6 +31,8 @@ export const keys = {
   investmentTrades: (id: string) => ['investment-trades', id] as const,
   security: ['security'] as const,
   categories: ['categories'] as const,
+  rules: ['rules'] as const,
+  transfers: ['transfer-suggestions'] as const,
 }
 
 /** Invalidates everything that displays money. */
@@ -231,6 +233,68 @@ export function useInvestmentTrades(
     queryKey: keys.investmentTrades(accountId),
     queryFn: () => api.fetchInvestmentTrades(accountId, 20),
     enabled: options.enabled ?? true,
+  })
+}
+
+// --- reports -------------------------------------------------------------------
+
+export function useCategoryTotals(query: {
+  from?: string
+  to?: string
+  kind?: 'spend' | 'income'
+}) {
+  return useQuery({
+    queryKey: ['reports', 'categories', query],
+    queryFn: () => api.fetchCategoryTotals(query),
+  })
+}
+
+export function useFlow(query: {
+  from?: string
+  to?: string
+  granularity?: 'day' | 'month'
+}) {
+  return useQuery({
+    queryKey: ['reports', 'flow', query],
+    queryFn: () => api.fetchFlow(query),
+  })
+}
+
+// --- transfers -----------------------------------------------------------------
+
+export function useTransferSuggestions() {
+  return useQuery({ queryKey: keys.transfers, queryFn: api.fetchTransferSuggestions })
+}
+
+export function useDecideTransfer() {
+  const invalidate = useMoneyInvalidation()
+  return useMutation({ mutationFn: api.decideTransfer, onSuccess: invalidate })
+}
+
+// --- rules ---------------------------------------------------------------------
+
+export function useRules() {
+  return useQuery({ queryKey: keys.rules, queryFn: api.fetchRules })
+}
+
+export function useSaveRule() {
+  const queryClient = useQueryClient()
+  const invalidate = useMoneyInvalidation()
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: RuleInput }) =>
+      id ? api.updateRule(id, input) : api.createRule(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.rules })
+      void invalidate()
+    },
+  })
+}
+
+export function useDeleteRule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteRule(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.rules }),
   })
 }
 

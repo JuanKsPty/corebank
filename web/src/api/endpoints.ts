@@ -1,13 +1,16 @@
-import { request, requestUpload } from './client'
+import { request, requestFile, requestUpload } from './client'
 import type {
   AccountList,
   Account,
   CategoryNode,
+  CategoryRule,
+  CategoryTotal,
   ChatHistory,
   Checkpoint,
   DeviceStatus,
   EntryKind,
   EntryPage,
+  FlowPoint,
   Entry,
   ImportResult,
   ImportRun,
@@ -20,6 +23,7 @@ import type {
   SecurityStatus,
   Session,
   StatementFileReport,
+  TransferSuggestion,
 } from './types'
 
 /**
@@ -173,6 +177,73 @@ export interface EntryPatch {
 
 export const updateEntry = (id: string, patch: EntryPatch) =>
   request<Entry>(`/api/entries/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+
+/** Downloads the movements matching a query as a CSV file, every page of them. */
+export function exportEntriesCSV(query: EntryQuery = {}) {
+  const qs = entryParams({ ...query, limit: undefined, cursor: undefined }).toString()
+  return requestFile(`/api/entries/export.csv${qs ? `?${qs}` : ''}`)
+}
+
+// --- reports -------------------------------------------------------------------
+
+export const fetchCategoryTotals = (query: {
+  from?: string
+  to?: string
+  kind?: 'spend' | 'income'
+}) => {
+  const params = new URLSearchParams()
+  if (query.from) params.set('from', query.from)
+  if (query.to) params.set('to', query.to)
+  if (query.kind) params.set('kind', query.kind)
+  return request<{ totals: CategoryTotal[] }>(`/api/reports/categories?${params}`)
+}
+
+export const fetchFlow = (query: {
+  from?: string
+  to?: string
+  granularity?: 'day' | 'month'
+}) => {
+  const params = new URLSearchParams()
+  if (query.from) params.set('from', query.from)
+  if (query.to) params.set('to', query.to)
+  if (query.granularity) params.set('granularity', query.granularity)
+  return request<{ points: FlowPoint[] }>(`/api/reports/flow?${params}`)
+}
+
+// --- transfers -----------------------------------------------------------------
+
+export const fetchTransferSuggestions = () =>
+  request<{ suggestions: TransferSuggestion[] }>('/api/transfers/suggestions')
+
+export const decideTransfer = (input: {
+  out_entry_id: string
+  in_entry_id: string
+  confirm: boolean
+}) => request<void>('/api/transfers/decisions', { method: 'POST', body: input })
+
+// --- rules ---------------------------------------------------------------------
+
+export interface RuleInput {
+  match_text: string
+  category_id?: string | null
+  transfer: boolean
+  priority?: number
+  apply_to_existing?: boolean
+}
+
+export const fetchRules = () => request<{ rules: CategoryRule[] }>('/api/category-rules')
+
+export const createRule = (input: RuleInput) =>
+  request<CategoryRule>('/api/category-rules', { method: 'POST', body: input })
+
+export const updateRule = (id: string, input: RuleInput) =>
+  request<CategoryRule>(`/api/category-rules/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: input,
+  })
+
+export const deleteRule = (id: string) =>
+  request<void>(`/api/category-rules/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 // --- chat -------------------------------------------------------------------
 

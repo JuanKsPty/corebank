@@ -22,6 +22,7 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/money"
 	"github.com/JuanKsPty/corebank/api/internal/statement"
 	"github.com/JuanKsPty/corebank/api/internal/store"
+	"github.com/JuanKsPty/corebank/api/internal/transfers"
 )
 
 // Service imports statement files.
@@ -111,14 +112,24 @@ func (s *Service) Import(ctx context.Context, userID uuid.UUID, filename string,
 		if err != nil {
 			return err
 		}
+		var from, to civil.Date
 		for _, st := range parsed.Statements {
 			r, err := s.importStatement(ctx, q, userID, parsed.Source, filename, sha, st, rules, expect)
 			if err != nil {
 				return err
 			}
 			result.Accounts = append(result.Accounts, r)
+			if from.IsZero() || st.PeriodStart.Before(from) {
+				from = st.PeriodStart
+			}
+			if st.PeriodEnd.After(to) {
+				to = st.PeriodEnd
+			}
 		}
-		return nil
+		// A card payment and its bank debit are one transfer; matched now,
+		// neither counts as spending.
+		_, err = transfers.AutoMatch(ctx, q, userID, from, to)
+		return err
 	})
 	if err != nil {
 		return Result{}, err

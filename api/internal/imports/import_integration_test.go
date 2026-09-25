@@ -17,8 +17,11 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/civil"
 	"github.com/JuanKsPty/corebank/api/internal/imports"
 	"github.com/JuanKsPty/corebank/api/internal/money"
+	"github.com/JuanKsPty/corebank/api/internal/reports"
+	"github.com/JuanKsPty/corebank/api/internal/rules"
 	"github.com/JuanKsPty/corebank/api/internal/store"
 	"github.com/JuanKsPty/corebank/api/internal/storetest"
+	"github.com/JuanKsPty/corebank/api/internal/transfers"
 )
 
 type env struct {
@@ -332,5 +335,116 @@ func TestReconciliationIsQuietWhenEverythingMatches(t *testing.T) {
 		if c.Difference() != 0 {
 			t.Errorf("check %s is off by %s", c.Checkpoint.Source, c.Difference())
 		}
+	}
+}
+
+func TestPayingTheCardIsOneTransferAndSpendingCountsOnce(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	// The card's "GRACIAS POR SU PAGO" +100.00 on 20/01 and the bank's -100.00
+	// "PAGO TC" on 18/01 are the same money.
+	e.importFile(t, "tarjeta.txt", []byte(cardFile))
+	r := e.importFile(t, "estado.csv", bacFile("500.00", "400.00",
+		"18/01/2026, 1, 4A, PAGO TC BANCO GENERAL, 100.00, 0.00, 400.00"))
+	bank := r.Accounts[0].AccountID
+
+	list, err := e.db.Q().Entries(ctx, store.EntryFilter{UserID: e.user, AccountIDs: []uuid.UUID{bank}})
+	if err != nil || len(list) != 1 {
+		t.Fatalf("bank entries = %v, %v", list, err)
+	}
+	if list[0].EffectiveKind() != store.KindTransfer {
+		t.Errorf("the bank's card payment is %s, want transfer (auto-matched)", list[0].EffectiveKind())
+	}
+
+	rep := reports.NewService(e.db)
+	spend, err := rep.Spending(ctx, e.user, civil.Date{}, civil.Date{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total money.Cents
+	for _, s := range spend {
+		total += s.Total
+	}
+	// 0.50 + 0.05 fees + 9.50 + 4.25 purchases: the 100.00 payment is in
+	// neither account's spending.
+	if total != 1430 {
+		t.Errorf("spending = %s, want 14.30", total)
+	}
+	if sug, _ := transfers.NewService(e.db).Suggestions(ctx, e.user); len(sug) != 0 {
+		t.Errorf("%d suggestions left after the only pair was auto-matched", len(sug))
+	}
+}
+
+func TestAnAmbiguousPairIsSuggestedNotMatched(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	// Two bank debits of 100.00 within the window: which one paid the card is
+	// a judgement, so neither is matched.
+	e.importFile(t, "tarjeta.txt", []byte(cardFile))
+	e.importFile(t, "estado.csv", bacFile("500.00", "300.00",
+		"17/01/2026, 1, 4A, PAGO, 100.00, 0.00, 400.00",
+		"19/01/2026, 2, 4A, ALQUILER, 100.00, 0.00, 300.00"))
+	svc := transfers.NewService(e.db)
+	sug, err := svc.Suggestions(ctx, e.user)
+	if err != nil || len(sug) != 2 {
+		t.Fatalf("suggestions = %d, %v; want both pairs offered", len(sug), err)
+	}
+	// Confirming one makes both its sides transfers and drops the other.
+	if err := svc.Decide(ctx, e.user, sug[0].Out.ID, sug[0].In.ID, true, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Decide(ctx, e.user, sug[1].Out.ID, sug[1].In.ID, false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := svc.Suggestions(ctx, e.user); len(left) != 0 {
+		t.Errorf("%d suggestions after deciding both", len(left))
+	}
+}
+
+func TestARuleFilesWhatIsAlreadyImportedButNotWhatTheOwnerChose(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.importFile(t, "tarjeta.txt", []byte(cardFile))
+	cats := categories.NewService(e.db)
+	compras, found, err := cats.FindByName(ctx, e.user, "Compras")
+	if err != nil || !found {
+		t.Fatalf("Compras category: %v %v", found, err)
+	}
+	salud, _, _ := cats.FindByName(ctx, e.user, "Salud")
+
+	// The owner filed the pharmacy under Salud by hand; a rule must not undo it.
+	pharmacy, _ := e.db.Q().Entries(ctx, store.EntryFilter{UserID: e.user, Search: "FARMACIA"})
+	if err := e.db.Q().SetEntryCategory(ctx, e.user, pharmacy[0].ID, &salud.ID, "user"); err != nil {
+		t.Fatal(err)
+	}
+	id := compras.ID
+	_, applied, err := rules.NewService(e.db, cats).Create(ctx, e.user, rules.Input{
+		MatchText: "PRUEBA", CategoryID: &id, ApplyToExisting: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 {
+		t.Errorf("applied = %d, want 1: the café, not the hand-filed pharmacy", applied)
+	}
+	pharmacy, _ = e.db.Q().Entries(ctx, store.EntryFilter{UserID: e.user, Search: "FARMACIA"})
+	if *pharmacy[0].CategoryID != salud.ID {
+		t.Error("the rule overwrote a category the owner chose")
+	}
+}
+
+func TestFlowCountsIncomeAndSpendingButNeverTransfers(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.importFile(t, "tarjeta.txt", []byte(cardFile))
+	points, err := reports.NewService(e.db).Flow(ctx, e.user, civil.Date{}, civil.Date{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 1 || points[0].Day.String() != "2026-01-01" {
+		t.Fatalf("points = %+v, want one January bucket", points)
+	}
+	if points[0].Out != 1430 || points[0].In != 0 {
+		t.Errorf("January = in %s, out %s; want in 0.00, out 14.30 (the payment is a transfer)", points[0].In, points[0].Out)
 	}
 }

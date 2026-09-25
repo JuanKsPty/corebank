@@ -154,3 +154,20 @@ func notFound(err error) error {
 	}
 	return err
 }
+
+// categoryNames maps every category the user has to its display name, a child
+// as "Padre › Hija".
+func (s *Service) categoryNames(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]string, error) {
+	tree, err := s.categories.Tree(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	names := map[uuid.UUID]string{}
+	for _, n := range tree {
+		names[n.ID] = n.Name
+		for _, c := range n.Children {
+			names[c.ID] = n.Name + " › " + c.Name
+		}
+	}
+	return names, nil
+}

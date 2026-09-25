@@ -22,6 +22,7 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/money"
 	"github.com/JuanKsPty/corebank/api/internal/store"
+	"github.com/JuanKsPty/corebank/api/internal/transfers"
 )
 
 var (
@@ -258,6 +259,10 @@ func (s *Service) apply(ctx context.Context, account store.Account, stmt ibkr.St
 				AccountID: accountID, AsOf: civil.Of(c.AsOf), Balance: ending, RunID: &runID}); err != nil {
 				return err
 			}
+		}
+
+		if _, err := transfers.AutoMatch(ctx, q, userID, day(stmt.FromDate), day(stmt.ToDate)); err != nil {
+			return err
 		}
 
 		describeStatement(&result, stmt, s.now())

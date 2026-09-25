@@ -27,8 +27,11 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/mcpserver"
 	"github.com/JuanKsPty/corebank/api/internal/movements"
+	"github.com/JuanKsPty/corebank/api/internal/reports"
+	"github.com/JuanKsPty/corebank/api/internal/rules"
 	"github.com/JuanKsPty/corebank/api/internal/server"
 	"github.com/JuanKsPty/corebank/api/internal/store"
+	"github.com/JuanKsPty/corebank/api/internal/transfers"
 )
 
 func main() {
@@ -117,6 +120,9 @@ func run() error {
 		Categories:  categories.NewHandler(categoriesSvc),
 		Investments: investments.NewHandler(investmentsSvc),
 		Imports:     imports.NewHandler(importsSvc, db),
+		Reports:     reports.NewHandler(reports.NewService(db)),
+		Transfers:   transfers.NewHandler(transfers.NewService(db)),
+		Rules:       rules.NewHandler(rules.NewService(db, categoriesSvc)),
 		Chat:        chat.NewHandler(chatSvc, authSvc, chatLimiter),
 	})
 
