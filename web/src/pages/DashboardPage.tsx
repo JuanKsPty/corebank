@@ -4,6 +4,11 @@ import { Link } from 'react-router-dom'
 import { AccountCard } from '@/components/AccountCard'
 import { EntryList } from '@/components/EntryList'
 import { ImportStatementDialog } from '@/components/ImportStatementDialog'
+import {
+  MonthlyFlow,
+  SpendingByCategory,
+  TransferSuggestions,
+} from '@/components/ReportsSection'
 import { Figure } from '@/components/primitives'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -98,6 +103,13 @@ export function DashboardPage() {
           </p>
         )}
       </section>
+
+      <TransferSuggestions accounts={list} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SpendingByCategory categories={categories.data?.categories} />
+        <MonthlyFlow />
+      </div>
 
       <section className="space-y-3">
         <h2 className="type-eyebrow">Tus cuentas</h2>

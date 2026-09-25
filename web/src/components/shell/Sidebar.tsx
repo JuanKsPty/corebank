@@ -3,6 +3,7 @@ import {
   LogOutIcon,
   MoonIcon,
   ShieldIcon,
+  WandSparklesIcon,
   SparklesIcon,
   SunIcon,
 } from 'lucide-react'
@@ -154,6 +155,12 @@ export function Sidebar({ className }: { className?: string }) {
             <DropdownMenuItem onSelect={() => setTheme(nextTheme(theme))}>
               <ThemeIcon aria-hidden="true" />
               {THEME_LABEL[theme]}
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/reglas">
+                <WandSparklesIcon aria-hidden="true" />
+                Reglas
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to="/seguridad">

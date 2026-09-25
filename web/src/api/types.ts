@@ -412,3 +412,36 @@ export interface Reconciliation {
   /** The line where the difference with the bank starts. */
   first_break?: string
 }
+
+// --- reports, transfers, rules ---------------------------------------------------
+
+export interface CategoryTotal {
+  /** Null for movements with no category. */
+  category_id: string | null
+  /** Positive: spending as money spent, a refund reducing it. */
+  total: Amount
+  count: number
+}
+
+export interface FlowPoint {
+  /** The day, or the first of the month for a monthly series. */
+  day: string
+  in: Amount
+  out: Amount
+}
+
+/** Two movements that look like one transfer between the owner's accounts. */
+export interface TransferSuggestion {
+  out: Entry
+  in: Entry
+}
+
+export interface CategoryRule {
+  id: string
+  match_text: string
+  category_id?: string
+  /** Matching movements count as transfers between the owner's accounts. */
+  transfer: boolean
+  priority: number
+  applied?: number
+}

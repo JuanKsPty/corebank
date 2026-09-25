@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { ListFilterIcon, SearchIcon } from 'lucide-react'
+import { DownloadIcon, ListFilterIcon, SearchIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { exportEntriesCSV } from '@/api/endpoints'
 import type { Account, EntryKind } from '@/api/types'
 import { DateField } from '@/components/DateField'
 import { EntryList } from '@/components/EntryList'
@@ -25,6 +26,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { accountLabel, numberShort } from '@/lib/format'
 import { useAccounts, useCategories, useEntries } from '@/lib/queries'
+import { downloadBlob } from '@/lib/utils'
 
 const KINDS: Array<{ value: EntryKind | ''; label: string }> = [
   { value: '', label: 'Todos' },
@@ -74,6 +76,18 @@ export function HistoryPage() {
     cursor,
   }
   const history = useEntries(query)
+  const [exporting, setExporting] = useState(false)
+
+  // The file holds every movement the filters match, not only this page of them.
+  async function exportCSV() {
+    setExporting(true)
+    try {
+      const { blob, filename } = await exportEntriesCSV(query)
+      downloadBlob(blob, filename ?? 'movimientos.csv')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const accounts = accountsQuery.data?.accounts ?? []
 
@@ -159,6 +173,15 @@ export function HistoryPage() {
             onSubmit={() => setTrail([])}
             className="min-w-0 flex-1 md:w-64 md:flex-none"
           />
+          <Button
+            variant="outline"
+            onClick={() => void exportCSV()}
+            disabled={exporting}
+            aria-label="Descargar CSV"
+          >
+            {exporting ? <Spinner /> : <DownloadIcon aria-hidden="true" />}
+            <span className="hidden md:inline">CSV</span>
+          </Button>
         </div>
       </header>
 

@@ -351,6 +351,12 @@ func scanEntry(s scanner) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	finish(&e, amount, bankBalance, raw)
+	return e, nil
+}
+
+// finish converts the scanned raw columns into an Entry's typed fields.
+func finish(e *Entry, amount int64, bankBalance *int64, raw []byte) {
 	e.Amount = money.Cents(amount)
 	if bankBalance != nil {
 		b := money.Cents(*bankBalance)
@@ -359,7 +365,6 @@ func scanEntry(s scanner) (Entry, error) {
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &e.Raw)
 	}
-	return e, nil
 }
 
 // prefixed qualifies a comma-separated column list with a table alias.

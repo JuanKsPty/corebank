@@ -4,6 +4,7 @@ import {
   LogOutIcon,
   MoonIcon,
   ShieldIcon,
+  WandSparklesIcon,
   SunIcon,
 } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -91,6 +92,12 @@ export function MobileAppBar() {
                 {THEME_LABEL[theme]}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
+                <Link to="/reglas">
+                  <WandSparklesIcon aria-hidden="true" />
+                  Reglas
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
                 <Link to="/seguridad">
                   <ShieldIcon aria-hidden="true" />
                   Seguridad
@@ -129,6 +136,7 @@ function detailTitle(pathname: string): string | null {
   if (pathname.startsWith('/cuentas/')) return 'Detalle de cuenta'
   if (pathname === '/cuentas') return 'Tus cuentas'
   if (pathname === '/seguridad') return 'Seguridad'
+  if (pathname === '/reglas') return 'Reglas'
   return null
 }
 

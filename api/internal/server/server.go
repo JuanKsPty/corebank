@@ -27,6 +27,9 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/imports"
 	"github.com/JuanKsPty/corebank/api/internal/investments"
 	"github.com/JuanKsPty/corebank/api/internal/movements"
+	"github.com/JuanKsPty/corebank/api/internal/reports"
+	"github.com/JuanKsPty/corebank/api/internal/rules"
+	"github.com/JuanKsPty/corebank/api/internal/transfers"
 )
 
 // Deps are the collaborators the routing table needs. It grows as features land;
@@ -46,6 +49,9 @@ type Deps struct {
 	Categories  *categories.Handler
 	Investments *investments.Handler
 	Imports     *imports.Handler
+	Reports     *reports.Handler
+	Transfers   *transfers.Handler
+	Rules       *rules.Handler
 	Chat        *chat.Handler
 }
 
@@ -84,6 +90,9 @@ func NewRouter(d Deps) http.Handler {
 			r.Mount("/categories", d.Categories.Routes())
 			r.Mount("/investments", d.Investments.Routes())
 			r.Mount("/imports", d.Imports.Routes())
+			r.Mount("/reports", d.Reports.Routes())
+			r.Mount("/transfers", d.Transfers.Routes())
+			r.Mount("/category-rules", d.Rules.Routes())
 			r.Mount("/chat", d.Chat.Routes())
 		})
 
