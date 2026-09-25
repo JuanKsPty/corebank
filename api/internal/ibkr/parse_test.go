@@ -288,3 +288,70 @@ func TestParseIgnoresAMalformedPeriod(t *testing.T) {
 		t.Errorf("FromDate = %v, ToDate = %v; want both zero", stmt.FromDate, stmt.ToDate)
 	}
 }
+
+func TestParseReadsTheCashReport(t *testing.T) {
+	const doc = `<FlexQueryResponse><FlexStatements count="1">
+		<FlexStatement accountId="U1" fromDate="20260901" toDate="20260923">
+			<CashReport>
+				<CashReportCurrency currency="BASE_SUMMARY" startingCash="10" endingCash="99" endingSettledCash="99" />
+				<CashReportCurrency currency="USD" startingCash="1000" endingCash="-492.66" endingSettledCash="-492.66" />
+			</CashReport>
+		</FlexStatement>
+	</FlexStatements></FlexQueryResponse>`
+	stmt, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stmt.HasCashReport || len(stmt.CashBalances) != 1 {
+		t.Fatalf("CashBalances = %+v, want only the USD line", stmt.CashBalances)
+	}
+	usd := stmt.CashBalances[0]
+	if usd.Ending != -49266 || usd.Starting != 100000 || usd.AsOf.Format("20060102") != "20260923" {
+		t.Errorf("USD = %+v", usd)
+	}
+}
+
+func TestCashKeysAreStableWhenTheWindowRolls(t *testing.T) {
+	// Two rows without a transactionID. When the older one drops out of the
+	// window, the other must keep its key; the old noref-N counter shifted it
+	// onto the dropped row's key and skipped it forever.
+	both := `<FlexQueryResponse><FlexStatements count="1"><FlexStatement accountId="U1"><CashTransactions>
+		<CashTransaction currency="USD" amount="1.00" type="Other Fees" description="A" dateTime="20260901" reportDate="20260901" />
+		<CashTransaction currency="USD" amount="2.00" type="Other Fees" description="B" dateTime="20260902" reportDate="20260902" />
+	</CashTransactions></FlexStatement></FlexStatements></FlexQueryResponse>`
+	later := `<FlexQueryResponse><FlexStatements count="1"><FlexStatement accountId="U1"><CashTransactions>
+		<CashTransaction currency="USD" amount="2.00" type="Other Fees" description="B" dateTime="20260902" reportDate="20260902" />
+	</CashTransactions></FlexStatement></FlexStatements></FlexQueryResponse>`
+	a, err := Parse([]byte(both))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Parse([]byte(later))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.CashTransactions[1].Key != b.CashTransactions[0].Key {
+		t.Errorf("row B's key changed from %q to %q when row A left the window",
+			a.CashTransactions[1].Key, b.CashTransactions[0].Key)
+	}
+	if a.CashTransactions[0].Key == a.CashTransactions[1].Key {
+		t.Error("two different rows share a key")
+	}
+	if a.CashTransactions[0].Description != "A" {
+		t.Errorf("Description = %q", a.CashTransactions[0].Description)
+	}
+}
+
+func TestParseKeepsOnlyExecutionTrades(t *testing.T) {
+	const doc = `<FlexQueryResponse><FlexStatements count="1"><FlexStatement accountId="U1"><Trades>
+		<Trade currency="USD" symbol="AAPL" assetCategory="STK" buySell="BUY" quantity="1" tradePrice="10" netCash="-10" tradeDate="20260901" tradeID="t1" levelOfDetail="EXECUTION" />
+		<Trade currency="USD" symbol="AAPL" assetCategory="STK" buySell="BUY" quantity="1" tradePrice="10" netCash="-10" tradeDate="20260901" tradeID="" levelOfDetail="ORDER" />
+	</Trades></FlexStatement></FlexStatements></FlexQueryResponse>`
+	stmt, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stmt.Trades) != 1 || stmt.Trades[0].ExternalRef != "t1" {
+		t.Errorf("Trades = %+v, want only the execution", stmt.Trades)
+	}
+}

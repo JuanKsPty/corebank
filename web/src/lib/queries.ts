@@ -380,6 +380,11 @@ export function useReconcileExternalAccount(externalAccountId: string) {
  * posted for real, so this invalidates everything that displays money —
  * exactly what a deposit, withdrawal or transfer already does — instead.
  */
+/** Parses a statement without importing it, so nothing is invalidated. */
+export function useDryRunStatement() {
+  return useMutation({ mutationFn: (file: File) => api.dryRunStatement(file) })
+}
+
 export function useImportBankStatement() {
   const queryClient = useQueryClient()
   const invalidateMoney = useMoneyInvalidation()

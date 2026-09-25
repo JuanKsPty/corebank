@@ -20,6 +20,7 @@ import type {
   ReconcileResult,
   SecurityStatus,
   Session,
+  StatementFileReport,
   TransactionPage,
 } from './types'
 
@@ -258,6 +259,10 @@ export const fetchExternalAccounts = () =>
  * automatically. Ignored for a card statement and for a repeat import of an
  * account already linked.
  */
+/** Parses a statement file and reports what it says, without importing it. */
+export const dryRunStatement = (file: File) =>
+  requestUpload<StatementFileReport>('/api/imports/dry-run', file)
+
 export const importBankStatement = (file: File, accountNumber?: string) =>
   requestUpload<ImportResult>(
     '/api/external-accounts/import',

@@ -26,6 +26,7 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/config"
 	"github.com/JuanKsPty/corebank/api/internal/httpx"
 	"github.com/JuanKsPty/corebank/api/internal/investments"
+	"github.com/JuanKsPty/corebank/api/internal/statement"
 	"github.com/JuanKsPty/corebank/api/internal/transactions"
 )
 
@@ -46,6 +47,7 @@ type Deps struct {
 	Categories   *categories.Handler
 	Investments  *investments.Handler
 	BankImport   *bankimport.Handler
+	Statements   *statement.Handler
 	Chat         *chat.Handler
 }
 
@@ -90,6 +92,7 @@ func NewRouter(d Deps) http.Handler {
 			// transactions/{id}/category sits under /transactions rather
 			// than under /accounts.
 			r.Patch("/external-transactions/{id}/category", d.BankImport.SetCategory)
+			r.Mount("/imports", d.Statements.Routes())
 			r.Mount("/chat", d.Chat.Routes())
 		})
 

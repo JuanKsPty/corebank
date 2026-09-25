@@ -30,6 +30,7 @@ import (
 	"github.com/JuanKsPty/corebank/api/internal/logging"
 	"github.com/JuanKsPty/corebank/api/internal/mcpserver"
 	"github.com/JuanKsPty/corebank/api/internal/server"
+	"github.com/JuanKsPty/corebank/api/internal/statement"
 	"github.com/JuanKsPty/corebank/api/internal/store"
 	"github.com/JuanKsPty/corebank/api/internal/tigerbeetle"
 	"github.com/JuanKsPty/corebank/api/internal/transactions"
@@ -141,6 +142,7 @@ func run() error {
 		Categories:   categories.NewHandler(categoriesSvc),
 		Investments:  investments.NewHandler(investmentsSvc),
 		BankImport:   bankimport.NewHandler(bankImportSvc),
+		Statements:   statement.NewHandler(),
 		Chat:         chat.NewHandler(chatSvc, authSvc, chatLimiter),
 	})
 
